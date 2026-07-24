@@ -8,8 +8,8 @@ from frontend.components.header import render_header
 
 def render(client: ExamAPIClient) -> None:
     render_header()
-    st.markdown("<div class='section-title'>Cấu hình trung tâm</div>", unsafe_allow_html=True)
-    st.caption("Mọi thay đổi được kiểm tra kiểu dữ liệu và lưu trực tiếp vào sys_props.")
+    st.markdown("<div class='section-title'>Central configuration</div>", unsafe_allow_html=True)
+    st.caption("Every change is type-checked and stored directly in sys_props.")
     try:
         payload = client.admin_config()
     except APIClientError as error:
@@ -19,7 +19,7 @@ def render(client: ExamAPIClient) -> None:
     items = payload["items"]
     editable = [item for item in items if item["is_editable"]]
     selected_key = st.selectbox(
-        "Chọn cấu hình cần điều chỉnh",
+        "Select a setting to edit",
         options=[item["prop_key"] for item in editable],
         format_func=lambda key: _config_label(key, editable),
     )
@@ -28,7 +28,7 @@ def render(client: ExamAPIClient) -> None:
     with st.form("admin_config_form"):
         value = _render_value_editor(item)
         submitted = st.form_submit_button(
-            "Lưu cấu hình",
+            "Save configuration",
             type="primary",
             width="stretch",
         )
@@ -41,18 +41,18 @@ def render(client: ExamAPIClient) -> None:
         except (APIClientError, ValueError, json.JSONDecodeError) as error:
             st.error(str(error))
             return
-        st.success(f"Đã cập nhật {selected_key}.")
+        st.success(f"Updated {selected_key}.")
         st.rerun()
 
-    st.subheader("Toàn bộ cấu hình")
+    st.subheader("All configuration")
     st.dataframe(
         [
             {
-                "Khóa": value["prop_key"],
-                "Giá trị": json.dumps(value["prop_value"], ensure_ascii=False),
-                "Có thể sửa": value["is_editable"],
-                "Cập nhật bởi": value["updated_by"],
-                "Cập nhật lúc": value["updated_at"],
+                "Key": value["prop_key"],
+                "Value": json.dumps(value["prop_value"], ensure_ascii=False),
+                "Editable": value["is_editable"],
+                "Updated by": value["updated_by"],
+                "Updated at": value["updated_at"],
             }
             for value in items
         ],
@@ -65,24 +65,24 @@ def _render_value_editor(item: dict):
     value = item["prop_value"]
     key = item["prop_key"]
     if isinstance(value, bool):
-        return st.checkbox("Giá trị", value=value)
+        return st.checkbox("Value", value=value)
     if isinstance(value, int):
-        return st.number_input("Giá trị", value=value, step=1)
+        return st.number_input("Value", value=value, step=1)
     if isinstance(value, float):
-        return st.number_input("Giá trị", value=value, step=0.05)
+        return st.number_input("Value", value=value, step=0.05)
     if key == "EXAM_ALLOWED_QUESTION_STATUSES":
         return st.multiselect(
-            "Trạng thái câu hỏi được sử dụng",
+            "Allowed question statuses",
             ["draft", "reviewed", "active", "retired"],
             default=value,
         )
     if isinstance(value, (dict, list)):
         return st.text_area(
-            "Giá trị JSON",
+            "JSON value",
             value=json.dumps(value, ensure_ascii=False, indent=2),
             height=180,
         )
-    return st.text_input("Giá trị", value=str(value))
+    return st.text_input("Value", value=str(value))
 
 
 def _parse_value(original, value):

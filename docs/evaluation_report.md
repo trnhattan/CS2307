@@ -1,21 +1,17 @@
 # CAT/IRT Evaluation
 
-This deterministic report uses 55 existing PostgreSQL questions, grouped by subject. It generated no question content.
+This deterministic report uses 201 existing PostgreSQL questions, grouped by subject. It generated no question content.
 
 | Subject | Pool mode | Questions | RMSE | MAE | Bias | Mean questions | Convergence |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| DATABASE | validated_existing_offline | 30 | 0.5478 | 0.4376 | 0.0814 | 16.69 | 100.00% |
-| NETWORK | validated_existing_offline | 25 | 0.5816 | 0.4618 | 0.0665 | 15.53 | 97.00% |
+| DATABASE | active | 101 | 0.3499 | 0.2796 | 0.0511 | 20.79 | 90.00% |
+| NETWORK | active | 100 | 0.3499 | 0.2796 | 0.0511 | 20.79 | 90.00% |
 
 ## Reliability and limitations
 
-- **DATABASE:** No active items exist for this subject; the offline evaluation uses only existing records that pass deterministic structural checks. They remain ineligible for production CAT until explicit admin review and activation.
-- **DATABASE:** Evaluation uses the current 30 provided questions; no questions were generated to reach 200.
-- **DATABASE:** RMSE, MAE, bias, and convergence are exploratory because the subject pool has fewer than 50 items.
+- **DATABASE:** Evaluation uses the current 101 active questions; the simulator generated no question content.
 - **DATABASE:** Item-fit and discrimination are simulation diagnostics, not empirical calibration from real student responses.
-- **DATABASE:** The IRT difficulty range is narrow relative to the simulated theta range [-3, 3].
-- **NETWORK:** No active items exist for this subject; the offline evaluation uses only existing records that pass deterministic structural checks. They remain ineligible for production CAT until explicit admin review and activation.
-- **NETWORK:** Evaluation uses the current 25 provided questions; no questions were generated to reach 200.
-- **NETWORK:** RMSE, MAE, bias, and convergence are exploratory because the subject pool has fewer than 50 items.
+- **DATABASE:** Item-fit and empirical discrimination are unreliable for items with fewer than 20 simulated responses.
+- **NETWORK:** Evaluation uses the current 100 active questions; the simulator generated no question content.
 - **NETWORK:** Item-fit and discrimination are simulation diagnostics, not empirical calibration from real student responses.
-- **NETWORK:** The IRT difficulty range is narrow relative to the simulated theta range [-3, 3].
+- **NETWORK:** Item-fit and empirical discrimination are unreliable for items with fewer than 20 simulated responses.

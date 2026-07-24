@@ -72,8 +72,8 @@ def select_next_question(
             - exposure_penalty * exposure_score
         )
         reason = (
-            f"Fisher={information:.3f}; ưu tiên kỹ năng yếu={weak_score:.3f}; "
-            f"cân bằng nội dung={balance_score:.3f}; phơi nhiễm={exposure_score:.3f}."
+            f"Fisher={information:.3f}; weak-unit priority={weak_score:.3f}; "
+            f"content balance={balance_score:.3f}; exposure={exposure_score:.3f}."
         )
         selections.append(
             CATSelection(candidate, score, information, components, reason)

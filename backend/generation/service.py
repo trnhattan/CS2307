@@ -24,6 +24,7 @@ from backend.generation.schemas import (
 from backend.generation.validator import validate_generated_question
 from backend.llm.client import OpenAICompatibleClient
 from backend.llm.errors import LLMError
+from backend.prompts import load_prompt
 
 
 class QuestionGenerationService:
@@ -69,7 +70,7 @@ class QuestionGenerationService:
             config = await self._repository.config(session)
             units = await self._repository.resolve_units(session, request)
             if units is None:
-                raise GenerationCatalogError("Không tìm thấy môn học đang hoạt động")
+                raise GenerationCatalogError("No active subject was found")
             self._validate_units(request, units["units"])
             existing_stems = await self._repository.existing_stems(session)
             model = self._model(config)
@@ -206,12 +207,12 @@ class QuestionGenerationService:
     def _validate_units(request: QuestionGenerationRequest, units: dict[str, Any]) -> None:
         topic = units.get(request.topic_code)
         if not topic or topic["unit_type"] != "topic":
-            raise GenerationCatalogError("Chủ đề không thuộc môn học đã chọn")
+            raise GenerationCatalogError("The topic does not belong to the selected subject")
         for skill_code in request.skill_codes:
             skill = units.get(skill_code)
             if not skill or skill["unit_type"] != "skill":
                 raise GenerationCatalogError(
-                    f"Kỹ năng {skill_code} không thuộc môn học đã chọn"
+                    f"Skill {skill_code} does not belong to the selected subject"
                 )
 
     @staticmethod
@@ -236,7 +237,7 @@ class QuestionGenerationService:
             "options": [
                 {
                     "text": "string",
-                    "distractor_type": "near_correct|misconception|clear_wrong",
+                    "distractor_type": "near_correct|misconception|clear_wrong; correct_index alone marks the best answer",
                     "diagnosis": "string or null",
                 }
             ],
@@ -247,19 +248,14 @@ class QuestionGenerationService:
         return [
             {
                 "role": "system",
-                "content": (
-                    "Bạn tạo MỘT bản nháp câu hỏi trắc nghiệm tiếng Việt để chuyên gia duyệt. "
-                    "Chỉ trả JSON hợp lệ, không Markdown. Không tự gán IRT. Có đúng một đáp án "
-                    "tốt nhất; các phương án khác phải hợp lý và không trùng nhau. Không nói rằng "
-                    "câu hỏi đã được xác minh hay kích hoạt."
-                ),
+                "content": load_prompt("question_generation_system_en.txt"),
             },
             {
                 "role": "user",
                 "content": (
-                    "Mục tiêu:\n"
+                    "Target:\n"
                     + json.dumps(target, ensure_ascii=False)
-                    + "\nĐịnh dạng bắt buộc:\n"
+                    + "\nRequired JSON shape:\n"
                     + json.dumps(schema, ensure_ascii=False)
                 ),
             },

@@ -439,13 +439,13 @@ class CATService:
     ) -> CATPublicResult:
         percentage = 100 * total_score / answered_count if answered_count else 0.0
         if percentage < 50:
-            label = "Cần ôn tập thêm"
+            label = "Needs review"
         elif percentage < 70:
-            label = "Đã hiểu kiến thức cơ bản"
+            label = "Foundational understanding"
         elif percentage < 85:
-            label = "Hiểu tốt"
+            label = "Good understanding"
         else:
-            label = "Hiểu rất tốt"
+            label = "Strong understanding"
         return CATPublicResult(
             session_id=exam["session_id"],
             subject_code=exam["subject_code"],

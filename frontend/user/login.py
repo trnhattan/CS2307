@@ -4,14 +4,14 @@ from frontend.api_client import APIClientError, ExamAPIClient
 from frontend.state import set_authenticated
 
 
-@st.dialog("Đăng nhập")
+@st.dialog("Sign in")
 def render_login_dialog() -> None:
-    st.caption("Sử dụng tài khoản được cấp theo vai trò.")
+    st.caption("Use the account assigned to your role.")
     with st.form("login_form"):
-        username = st.text_input("Tên đăng nhập")
-        password = st.text_input("Mật khẩu", type="password")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
         submitted = st.form_submit_button(
-            "Đăng nhập",
+            "Sign in",
             type="primary",
             width="stretch",
         )

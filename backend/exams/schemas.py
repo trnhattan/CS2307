@@ -18,6 +18,7 @@ class ExamRuntimeConfig(BaseModel):
 
 class TakerExamConfig(BaseModel):
     default_question_count: int
+    difficulty_distribution: dict[str, float]
 
 
 class SubjectListResponse(BaseModel):
@@ -113,6 +114,7 @@ class SubmitExamRequest(BaseModel):
 class AnswerFeedback(BaseModel):
     exam_item_id: int
     question_code: str
+    stem: str
     selected_option_code: str
     selected_option_text: str
     correct_option_code: str

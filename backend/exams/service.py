@@ -46,7 +46,14 @@ class ExamService:
             config=TakerExamConfig(
                 default_question_count=int(
                     config.get("DEFAULT_EXAM_QUESTION_COUNT", 20)
-                )
+                ),
+                difficulty_distribution={
+                    key: float(value)
+                    for key, value in config.get(
+                        "FIXED_EXAM_DIFFICULTY_DISTRIBUTION",
+                        {"easy": 0.3, "medium": 0.4, "hard": 0.3},
+                    ).items()
+                },
             ),
         )
 
@@ -327,6 +334,7 @@ class ExamService:
                     AnswerFeedback(
                         exam_item_id=item["exam_item_id"],
                         question_code=item["question_code"],
+                        stem=item["stem"],
                         selected_option_code=answer.selected_option_code,
                         selected_option_text=option["option_text"],
                         correct_option_code=best["option_code"],
@@ -345,8 +353,8 @@ class ExamService:
                         "theta_after": round(final_theta, 6),
                         "standard_error_after": round(final_se, 6),
                         "explanation": (
-                            f"Cập nhật theta sau câu {item['question_code']} "
-                            "bằng IRT 3PL EAP."
+                            f"Updated theta after question {item['question_code']} "
+                            "with IRT 3PL EAP."
                         ),
                     }
                 )
@@ -434,9 +442,9 @@ class ExamService:
     @staticmethod
     def _understanding_label(percentage: float) -> str:
         if percentage < 50:
-            return "Cần ôn tập thêm"
+            return "Needs review"
         if percentage < 70:
-            return "Đã hiểu kiến thức cơ bản"
+            return "Foundational understanding"
         if percentage < 85:
-            return "Hiểu tốt"
-        return "Hiểu rất tốt"
+            return "Good understanding"
+        return "Strong understanding"

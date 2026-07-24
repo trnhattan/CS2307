@@ -9,14 +9,17 @@ from frontend.state import go
 
 def render(client: ExamAPIClient) -> None:
     render_header()
-    st.markdown("<div class='section-title'>Chọn môn thi</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>Build your test</div>", unsafe_allow_html=True)
     mode = st.radio(
-        "Hình thức",
+        "Test mode",
         options=["fixed", "adaptive"],
-        format_func=lambda value: "Đề cố định" if value == "fixed" else "Bài thi thích ứng",
+        format_func=lambda value: "Fixed blueprint" if value == "fixed" else "Adaptive CAT",
         horizontal=True,
     )
-    st.caption("Đề cố định cho phép chọn nhiều môn; bài thích ứng thực hiện từng môn một.")
+    st.caption(
+        "A fixed blueprint exposes subject, question-count, and difficulty controls in one place. "
+        "CAT adapts one subject at a time from central configuration."
+    )
     try:
         payload = client.subjects()
     except APIClientError as error:
@@ -28,35 +31,81 @@ def render(client: ExamAPIClient) -> None:
     }
     if mode == "fixed":
         selected = st.multiselect(
-            "Môn học",
+            "Subjects",
             options=list(labels),
             format_func=lambda code: labels[code],
-            placeholder="Chọn ít nhất một môn học",
+            placeholder="Select at least one subject",
         )
     else:
         selected_subject = st.selectbox(
-            "Môn học",
+            "Subject",
             options=[None, *labels],
-            format_func=lambda code: "Chọn một môn học" if code is None else labels[code],
+            format_func=lambda code: "Select one subject" if code is None else labels[code],
         )
         selected = [selected_subject] if selected_subject else []
-    question_count = payload["config"]["default_question_count"]
+    default_count = payload["config"]["default_question_count"]
+    difficulty_distribution = payload["config"]["difficulty_distribution"]
+    question_count = default_count
+    if mode == "fixed":
+        st.subheader("Fixed-exam blueprint")
+        question_count = st.number_input(
+            "Questions per subject",
+            min_value=1,
+            max_value=100,
+            value=default_count,
+            step=1,
+        )
+        profile = st.selectbox(
+            "Difficulty profile",
+            options=["balanced", "foundation", "challenging", "custom"],
+            format_func=lambda value: {
+                "balanced": "Balanced",
+                "foundation": "Foundation focused",
+                "challenging": "Challenge focused",
+                "custom": "Custom distribution",
+            }[value],
+        )
+        presets = {
+            "balanced": difficulty_distribution,
+            "foundation": {"easy": 0.6, "medium": 0.3, "hard": 0.1},
+            "challenging": {"easy": 0.1, "medium": 0.3, "hard": 0.6},
+        }
+        if profile == "custom":
+            difficulty_columns = st.columns(3)
+            easy = difficulty_columns[0].number_input("Easy weight", 0.0, 1.0, 0.3, 0.05)
+            medium = difficulty_columns[1].number_input("Medium weight", 0.0, 1.0, 0.4, 0.05)
+            hard = difficulty_columns[2].number_input("Hard weight", 0.0, 1.0, 0.3, 0.05)
+            difficulty_distribution = {"easy": easy, "medium": medium, "hard": hard}
+        else:
+            difficulty_distribution = presets[profile]
+        st.caption(
+            "Current weights · "
+            + " · ".join(
+                f"{label.title()} {value:.0%}"
+                for label, value in difficulty_distribution.items()
+            )
+        )
     st.info(
-        f"Mỗi môn gồm **{question_count} câu**. Thời gian hiển thị là thời gian "
-        "dự kiến; bạn vẫn có thể tiếp tục nếu đồng hồ về 0."
+        "The countdown is guidance only. You may continue after the estimated time reaches zero."
     )
     if st.button(
-        "Bắt đầu bài thi",
+        "Start test",
         type="primary",
         width="stretch",
         disabled=not selected,
     ):
         try:
-            with st.spinner("Đang chuẩn bị đề thi..."):
+            with st.spinner("Preparing your test..."):
                 if mode == "adaptive":
                     adaptive = client.start_cat(selected[0])
                 else:
-                    exam = client.generate(selected)
+                    exam = client.generate_with_blueprint(
+                        {
+                            "subject_codes": selected,
+                            "question_count": int(question_count),
+                            "difficulty_distribution": difficulty_distribution,
+                        }
+                    )
         except APIClientError as error:
             st.error(str(error))
             return

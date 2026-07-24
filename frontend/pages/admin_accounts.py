@@ -5,15 +5,15 @@ from frontend.components.header import render_header
 
 
 ROLE_LABELS = {
-    "admin": "Quản trị viên",
-    "supervisor": "Giám sát",
-    "exam_taker": "Thí sinh",
+    "admin": "Administrator",
+    "supervisor": "Supervisor",
+    "exam_taker": "Exam taker",
 }
 
 
 def render(client: ExamAPIClient) -> None:
     render_header()
-    st.markdown("<div class='section-title'>Quản lý tài khoản</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>Account administration</div>", unsafe_allow_html=True)
     try:
         accounts = client.admin_accounts()
     except APIClientError as error:
@@ -23,11 +23,11 @@ def render(client: ExamAPIClient) -> None:
     st.dataframe(
         [
             {
-                "Tên đăng nhập": item["username"],
-                "Tên hiển thị": item["display_name"],
-                "Vai trò": ROLE_LABELS[item["role"]],
-                "Mã sinh viên": item["student_code"],
-                "Hoạt động": item["is_active"],
+                "Username": item["username"],
+                "Display name": item["display_name"],
+                "Role": ROLE_LABELS[item["role"]],
+                "Student code": item["student_code"],
+                "Active": item["is_active"],
             }
             for item in accounts
         ],
@@ -35,23 +35,23 @@ def render(client: ExamAPIClient) -> None:
         hide_index=True,
     )
 
-    create_tab, manage_tab = st.tabs(["Tạo tài khoản", "Chỉnh sửa tài khoản"])
+    create_tab, manage_tab = st.tabs(["Create account", "Edit account"])
     with create_tab:
         role = st.selectbox(
-            "Vai trò mới",
+            "New account role",
             options=list(ROLE_LABELS),
             format_func=lambda value: ROLE_LABELS[value],
             key="new_account_role",
         )
         with st.form("create_account_form"):
-            username = st.text_input("Tên đăng nhập")
-            display_name = st.text_input("Tên hiển thị")
+            username = st.text_input("Username")
+            display_name = st.text_input("Display name")
             student_code = (
-                st.text_input("Mã sinh viên") if role == "exam_taker" else None
+                st.text_input("Student code") if role == "exam_taker" else None
             )
-            password = st.text_input("Mật khẩu ban đầu", type="password")
+            password = st.text_input("Initial password", type="password")
             submitted = st.form_submit_button(
-                "Tạo tài khoản",
+                "Create account",
                 type="primary",
                 width="stretch",
             )
@@ -69,12 +69,12 @@ def render(client: ExamAPIClient) -> None:
             except APIClientError as error:
                 st.error(str(error))
             else:
-                st.success(f"Đã tạo tài khoản {username}.")
+                st.success(f"Created account {username}.")
                 st.rerun()
 
     with manage_tab:
         selected_username = st.selectbox(
-            "Chọn tài khoản",
+            "Select account",
             options=[item["username"] for item in accounts],
             key="managed_account",
         )
@@ -83,16 +83,16 @@ def render(client: ExamAPIClient) -> None:
         )
         with st.form("update_account_form"):
             display_name = st.text_input(
-                "Tên hiển thị",
+                "Display name",
                 value=selected["display_name"],
             )
-            is_active = st.checkbox("Đang hoạt động", value=selected["is_active"])
+            is_active = st.checkbox("Active", value=selected["is_active"])
             password = st.text_input(
-                "Mật khẩu mới (để trống nếu không đổi)",
+                "New password (leave blank to keep the current password)",
                 type="password",
             )
             submitted = st.form_submit_button(
-                "Lưu tài khoản",
+                "Save account",
                 type="primary",
                 width="stretch",
             )
@@ -108,5 +108,5 @@ def render(client: ExamAPIClient) -> None:
             except APIClientError as error:
                 st.error(str(error))
             else:
-                st.success(f"Đã cập nhật {selected_username}.")
+                st.success(f"Updated {selected_username}.")
                 st.rerun()

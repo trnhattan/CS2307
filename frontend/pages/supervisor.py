@@ -12,41 +12,43 @@ def render(client: ExamAPIClient) -> None:
     except APIClientError as error:
         st.error(str(error))
         return
-    render_assessment_dashboard(payload, "Bảng điều khiển giám sát")
+    render_assessment_dashboard(client, payload, "Supervisor dashboard")
 
 
-def render_assessment_dashboard(payload: dict, title: str) -> None:
+def render_assessment_dashboard(
+    client: ExamAPIClient, payload: dict, title: str
+) -> None:
     st.markdown(f"<div class='section-title'>{title}</div>", unsafe_allow_html=True)
     summary = payload["summary"]
     columns = st.columns(5)
-    columns[0].metric("Phiên thi", summary["total_sessions"])
-    columns[1].metric("Hoàn thành", summary["completed_sessions"])
-    columns[2].metric("Đang làm", summary["in_progress_sessions"])
-    columns[3].metric("Thí sinh", summary["exam_takers"])
-    columns[4].metric("Điểm trung bình", f"{summary['average_score_percent']:.1f}%")
+    columns[0].metric("Sessions", summary["total_sessions"])
+    columns[1].metric("Completed", summary["completed_sessions"])
+    columns[2].metric("In progress", summary["in_progress_sessions"])
+    columns[3].metric("Exam takers", summary["exam_takers"])
+    columns[4].metric("Average score", f"{summary['average_score_percent']:.1f}%")
 
-    st.subheader("Tổng quan thí sinh")
+    st.subheader("Exam-taker overview")
     takers = payload["takers"]
     st.dataframe(
         [
             {
-                "Thí sinh": item["student_name"],
-                "Mã sinh viên": item["student_code"],
-                "Bài hoàn thành": item["completed_tests"],
-                "Môn đã đánh giá": item["subjects_assessed"],
-                "Điểm trung bình": f"{item['average_score_percent']:.1f}%",
-                "Điểm cao nhất": f"{item['best_score_percent']:.1f}%",
-                "Điểm gần nhất": (
+                "Exam taker": item["student_name"],
+                "Student code": item["student_code"],
+                "Completed tests": item["completed_tests"],
+                "Subjects assessed": item["subjects_assessed"],
+                "Average score": f"{item['average_score_percent']:.1f}%",
+                "Best score": f"{item['best_score_percent']:.1f}%",
+                "Latest score": (
                     f"{item['latest_score_percent']:.1f}%"
                     if item["latest_score_percent"] is not None
-                    else "Chưa có"
+                    else "Not assessed"
                 ),
-                "Theta trung bình": (
+                "Average theta": (
                     round(item["average_theta"], 3)
                     if item["average_theta"] is not None
                     else None
                 ),
-                "Làm chủ trung bình": (
+                "Average mastery": (
                     f"{item['average_mastery_probability']:.1%}"
                     if item["average_mastery_probability"] is not None
                     else None
@@ -58,19 +60,19 @@ def render_assessment_dashboard(payload: dict, title: str) -> None:
         hide_index=True,
     )
 
-    st.subheader("Các bài thi đã sinh")
+    st.subheader("Generated exam sessions")
     sessions = payload["sessions"]
     if not sessions:
-        st.info("Chưa có phiên thi nào.")
+        st.info("No exam session exists yet.")
     else:
         table = [
             {
-                "Phiên": item["session_id"],
-                "Thí sinh": item["student_name"],
-                "Môn": item["subject_name"],
-                "Trạng thái": item["status"],
-                "Đã trả lời": f"{item['answered_count']}/{item['question_count']}",
-                "Điểm": f"{item['score_percent']:.1f}%",
+                "Session": item["session_id"],
+                "Exam taker": item["student_name"],
+                "Subject": item["subject_name"],
+                "Status": item["status"],
+                "Answered": f"{item['answered_count']}/{item['question_count']}",
+                "Score": f"{item['score_percent']:.1f}%",
                 "Theta": round(item["theta_current"], 3),
                 "SE": round(item["standard_error"], 3),
             }
@@ -78,7 +80,7 @@ def render_assessment_dashboard(payload: dict, title: str) -> None:
         ]
         st.dataframe(table, width="stretch", hide_index=True)
         selected_id = st.selectbox(
-            "Chi tiết phiên thi",
+            "Session details",
             options=[item["session_id"] for item in sessions],
             format_func=lambda value: _session_label(value, sessions),
         )
@@ -89,18 +91,18 @@ def render_assessment_dashboard(payload: dict, title: str) -> None:
         if selected["mode"] == "adaptive":
             try:
                 adaptive = client.staff_cat(selected_id)
-                st.subheader("Quỹ đạo CAT")
+                st.subheader("CAT trajectory")
                 st.dataframe(
                     [
                         {
-                            "Câu": item["order_no"],
-                            "Mã": item["question_code"],
-                            "Đúng": item["is_correct"],
-                            "Theta trước": item["theta_before"],
-                            "Theta sau": item["theta_after"],
+                            "Question": item["order_no"],
+                            "Code": item["question_code"],
+                            "Correct": item["is_correct"],
+                            "Theta before": item["theta_before"],
+                            "Theta after": item["theta_after"],
                             "SE": item["standard_error_after"],
                             "Information": item["item_information"],
-                            "Lý do chọn": item["selection_reason"],
+                            "Selection reason": item["selection_reason"],
                         }
                         for item in adaptive["items"]
                     ],
@@ -110,22 +112,22 @@ def render_assessment_dashboard(payload: dict, title: str) -> None:
             except APIClientError as error:
                 st.error(str(error))
 
-    st.subheader("Năng lực theo thí sinh và môn học")
+    st.subheader("Ability by exam taker and subject")
     abilities = payload["abilities"]
     if abilities:
         st.dataframe(
             [
                 {
-                    "Thí sinh": item["student_name"],
-                    "Môn": item["subject_name"],
+                    "Exam taker": item["student_name"],
+                    "Subject": item["subject_name"],
                     "Theta": round(item["theta"], 4),
-                    "Sai số chuẩn": round(item["standard_error"], 4),
-                    "Xác suất làm chủ": (
+                    "Standard error": round(item["standard_error"], 4),
+                    "Mastery probability": (
                         round(item["mastery_probability"], 4)
                         if item["mastery_probability"] is not None
                         else None
                     ),
-                    "Bằng chứng": item["evidence_count"],
+                    "Evidence": item["evidence_count"],
                 }
                 for item in abilities
             ],
@@ -133,44 +135,44 @@ def render_assessment_dashboard(payload: dict, title: str) -> None:
             hide_index=True,
         )
     else:
-        st.info("Chưa có kết quả năng lực sau bài thi.")
+        st.info("No post-test ability estimate is available yet.")
 
 
 def render_session_detail(session: dict) -> None:
     theta_delta = session["theta_current"] - session["theta_initial"]
     left, middle, right = st.columns(3)
     left.metric(
-        "Theta sau bài",
+        "Post-test theta",
         f"{session['theta_current']:.3f}",
         delta=f"{theta_delta:+.3f}",
     )
-    middle.metric("Sai số chuẩn", f"{session['standard_error']:.3f}")
+    middle.metric("Standard error", f"{session['standard_error']:.3f}")
     right.metric(
-        "Fisher information TB",
+        "Average Fisher information",
         f"{session['average_item_information']:.3f}",
     )
     charts = st.columns(2)
     with charts[0]:
-        st.caption("Phân bố độ khó")
+        st.caption("Difficulty distribution")
         st.bar_chart(
             [
-                {"Mức": key, "Số câu": value}
+                {"Level": key, "Questions": value}
                 for key, value in session["difficulty_distribution"].items()
             ],
-            x="Mức",
-            y="Số câu",
+            x="Level",
+            y="Questions",
         )
     with charts[1]:
-        st.caption("Phân bố Bloom")
+        st.caption("Bloom distribution")
         st.bar_chart(
             [
-                {"Mức": key, "Số câu": value}
+                {"Level": key, "Questions": value}
                 for key, value in session["bloom_distribution"].items()
             ],
-            x="Mức",
-            y="Số câu",
+            x="Level",
+            y="Questions",
         )
-    with st.expander("Cấu hình đã dùng để sinh đề"):
+    with st.expander("Generation configuration snapshot"):
         st.json(session["generation_config"])
 
 

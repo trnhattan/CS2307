@@ -25,22 +25,22 @@ def validate_generated_question(
     if len(generated.options) != expected_option_count:
         add(
             "answer_pool_size",
-            f"Cần {expected_option_count} phương án cho mức Bloom này, nhận được {len(generated.options)}.",
+            f"This Bloom level requires {expected_option_count} options; received {len(generated.options)}.",
         )
     option_texts = [_normalize(option.text) for option in generated.options]
     if len(option_texts) != len(set(option_texts)):
-        add("duplicate_options", "Các phương án trả lời phải khác nhau.")
+        add("duplicate_options", "Answer options must be distinct.")
     normalized_stem = _normalize(generated.stem)
     if any(normalized_stem == _normalize(stem) for stem in existing_stems):
-        add("duplicate_stem", "Nội dung câu hỏi trùng hoàn toàn với ngân hàng hiện có.")
+        add("duplicate_stem", "The stem exactly duplicates an existing question.")
     elif any(_jaccard(normalized_stem, _normalize(stem)) >= 0.85 for stem in existing_stems):
-        add("near_duplicate_stem", "Nội dung câu hỏi quá giống một câu hiện có.")
+        add("near_duplicate_stem", "The stem is too similar to an existing question.")
     if len(generated.explanation.strip()) < 30:
-        add("short_explanation", "Giải thích quá ngắn để phục vụ review.")
+        add("short_explanation", "The explanation is too short for review.")
     if not request.source_context:
         add(
             "missing_source_context",
-            "Không có đoạn nguồn; reviewer cần kiểm chứng nội dung bằng nguồn ngoài.",
+            "No source excerpt was supplied; the reviewer must verify the content independently.",
             "warning",
         )
     return issues

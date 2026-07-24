@@ -27,8 +27,8 @@ def render(client: ExamAPIClient) -> None:
         unsafe_allow_html=True,
     )
     st.caption(
-        f"Môn {st.session_state.session_index + 1}/{total_sessions} · "
-        f"{session['question_count']} câu"
+        f"Subject {st.session_state.session_index + 1}/{total_sessions} · "
+        f"{session['question_count']} questions"
     )
     render_countdown(started_at, session["estimated_minutes"])
 
@@ -38,7 +38,7 @@ def render(client: ExamAPIClient) -> None:
             st.markdown(
                 f"""
                 <div class="question-card">
-                  <span class="badge">Câu {question['order_no']}</span>
+                  <span class="badge">Question {question['order_no']}</span>
                   <p><strong>{question['stem']}</strong></p>
                 </div>
                 """,
@@ -49,7 +49,7 @@ def render(client: ExamAPIClient) -> None:
                 for option in question["options"]
             }
             answers[question["exam_item_id"]] = st.radio(
-                f"Chọn đáp án cho câu {question['order_no']}",
+                f"Select an answer for question {question['order_no']}",
                 options=list(option_labels),
                 format_func=lambda code, labels=option_labels: labels[code],
                 index=None,
@@ -57,7 +57,7 @@ def render(client: ExamAPIClient) -> None:
                 label_visibility="collapsed",
             )
         submitted = st.form_submit_button(
-            "Nộp bài",
+            "Submit test",
             type="primary",
             width="stretch",
         )
@@ -66,7 +66,7 @@ def render(client: ExamAPIClient) -> None:
         return
     missing = sum(value is None for value in answers.values())
     if missing:
-        st.error(f"Bạn còn {missing} câu chưa trả lời.")
+        st.error(f"{missing} questions are still unanswered.")
         return
     elapsed = max(1, int(time.time() - started_at))
     average_time = max(1, elapsed // len(answers))
@@ -79,7 +79,7 @@ def render(client: ExamAPIClient) -> None:
         for item_id, option_code in answers.items()
     ]
     try:
-        with st.spinner("Đang chấm điểm..."):
+        with st.spinner("Scoring your test..."):
             result = client.submit(session["session_id"], body)
     except APIClientError as error:
         st.error(str(error))

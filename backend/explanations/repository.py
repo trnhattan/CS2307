@@ -88,9 +88,9 @@ class ExamExplanationRepository:
                     "evidence_count": int(value["evidence_count"]),
                     "accuracy_percent": float(value["accuracy_percent"]),
                     "recommendation": (
-                        "ôn lại" if float(value["accuracy_percent"]) < 50 else
-                        "củng cố" if float(value["accuracy_percent"]) < 75 else
-                        "tiếp tục nâng cao"
+                        "remediate" if float(value["accuracy_percent"]) < 50 else
+                        "reinforce" if float(value["accuracy_percent"]) < 75 else
+                        "advance"
                     ),
                 }
                 for value in units
@@ -133,6 +133,7 @@ class ExamExplanationRepository:
                 WHERE artifact_type = 'exam_explanation'
                   AND session_id = :session_id AND audience = :audience
                   AND status = 'success'
+                  AND response_payload ->> 'grounding_version' = 'deterministic-evidence-v1'
                 ORDER BY created_at DESC
                 LIMIT 1
                 """

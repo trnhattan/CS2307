@@ -291,7 +291,7 @@ class InferenceEngine:
                                     rule_code=f"REL_TRANSITIVE_{predicate}",
                                     input_fact_ids=(self._fact_id(left, facts), self._fact_id(right, facts)),
                                     output_fact_ids=(candidate.fact_id or "",),
-                                    explanation=f"Áp dụng tính bắc cầu của quan hệ {predicate}.",
+                                    explanation=f"Applied transitivity for relation {predicate}.",
                                     bindings={},
                                 )
                             )

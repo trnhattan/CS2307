@@ -31,7 +31,9 @@ def apply_styles() -> None:
         .badge { display: inline-block; background: #edf2ff; color: #2947a6; border-radius: 99px;
                  padding: .25rem .65rem; font-size: .76rem; font-weight: 700; margin-right: .3rem; }
         div.stButton > button, div.stFormSubmitButton > button {
-            border-radius: 12px; min-height: 46px; font-weight: 700;
+            border-radius: 12px; min-height: 46px; height: auto; font-weight: 700;
+            line-height: 1.2; overflow-wrap: normal; padding: .55rem .65rem;
+            white-space: normal; word-break: normal; hyphens: none;
         }
         [data-testid="stMetric"] { background: white; border: 1px solid #dbe4f5;
                                    padding: 1rem; border-radius: 16px; }
@@ -41,7 +43,10 @@ def apply_styles() -> None:
         .user-pill { min-height: 46px; display: flex; align-items: center; justify-content: center;
                      padding: .45rem .7rem; border: 1px solid #dbe4f5; border-radius: 12px;
                      background: rgba(255,255,255,.82); color: #475569; font-size: .8rem;
-                     text-align: center; line-height: 1.2; }
+                     text-align: center; line-height: 1.2; overflow-wrap: normal;
+                     word-break: normal; }
+        .workspace-name { min-height: 46px; display: flex; align-items: center;
+                          color: #172554; font-size: .92rem; font-weight: 800; }
         </style>
         """,
         unsafe_allow_html=True,

@@ -15,6 +15,7 @@ ROLE_PAGES = {
     "supervisor": {
         "supervisor",
         "supervisor_config",
+        "calibration",
         "llm_generation",
         "knowledge_graph",
     },
@@ -23,6 +24,7 @@ ROLE_PAGES = {
         "admin_questions",
         "admin_config",
         "admin_accounts",
+        "calibration",
         "llm_generation",
         "knowledge_graph",
     },
@@ -49,6 +51,7 @@ def initialize_state() -> None:
         "cat_started_at": None,
         "cat_question_started_at": None,
         "cat_result": None,
+        "calibration_result": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:

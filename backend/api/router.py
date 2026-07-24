@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from backend.admin.router import router as admin_router
 from backend.auth.router import router as auth_router
 from backend.cat.router import router as cat_router, staff_router as cat_staff_router
+from backend.calibration.router import router as calibration_router
 from backend.exams.router import router as exams_router
 from backend.explanations.router import router as explanations_router
 from backend.generation.router import router as generation_router
@@ -16,6 +17,7 @@ api_router = APIRouter()
 api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
 api_router.include_router(cat_router, prefix="/cat", tags=["cat"])
 api_router.include_router(cat_staff_router, tags=["cat"])
+api_router.include_router(calibration_router, prefix="/calibration", tags=["irt-calibration"])
 api_router.include_router(questions_router, prefix="/questions", tags=["questions"])
 api_router.include_router(exams_router, prefix="/exams", tags=["exams"])
 api_router.include_router(explanations_router, tags=["llm-explanations"])

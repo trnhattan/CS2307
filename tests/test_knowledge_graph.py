@@ -77,13 +77,25 @@ def test_knowledge_graph_has_evidence_and_role_specific_visibility() -> None:
     assert any(node.type == "evidence" for node in taker.nodes)
     assert any(edge.relation == "recommended_next" for edge in taker.edges)
     assert any(edge.relation == "prerequisite_of" for edge in taker.edges)
+    assert {"Student 1", "Database Systems", "Core", "SQL"}.issubset(
+        {node.label for node in taker.nodes}
+    )
+    assert all("_" not in node.label for node in taker.nodes)
+    assert all(node.label.isascii() for node in taker.nodes)
     taker_payload = taker.model_dump_json()
     staff_payload = staff.model_dump_json()
     assert all(
         value not in taker_payload
-        for value in ("theta", "standard_error", "trace_id", "rule_code", "Technical question text")
+        for value in ("theta", "standard_error", "reasoning_trace", "reasoning_rule", "Technical question text")
     )
     assert all(
         value in staff_payload
-        for value in ("theta", "standard_error", "trace_id", "rule_code", "Technical question text")
+        for value in (
+            "theta",
+            "standard_error",
+            "reasoning_trace",
+            "reasoning_rule",
+            "Technical question text",
+            "Review weak foundational knowledge",
+        )
     )

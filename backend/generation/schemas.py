@@ -74,6 +74,25 @@ class GeneratedQuestionPayload(BaseModel):
     explanation: str = Field(min_length=10, max_length=4000)
     bloom_rationale: str = Field(min_length=5, max_length=1000)
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_correct_option_marker(cls, data):
+        if not isinstance(data, dict):
+            return data
+        options = data.get("options")
+        correct_index = data.get("correct_index")
+        if not isinstance(options, list) or not isinstance(correct_index, int):
+            return data
+        if 0 <= correct_index < len(options) and isinstance(options[correct_index], dict):
+            marker = options[correct_index].get("distractor_type")
+            if marker in {"best", "correct"}:
+                normalized = dict(data)
+                normalized_options = [dict(option) if isinstance(option, dict) else option for option in options]
+                normalized_options[correct_index]["distractor_type"] = "clear_wrong"
+                normalized["options"] = normalized_options
+                return normalized
+        return data
+
     @model_validator(mode="after")
     def valid_correct_index(self):
         if self.correct_index >= len(self.options):

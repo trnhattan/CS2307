@@ -104,9 +104,9 @@ class TakerService:
             if fact.predicate == "recommended_next" and len(fact.arguments) == 3
         }
         actions = {
-            "remediate": "Ôn lại kiến thức nền và làm bài luyện tập cơ bản",
-            "reinforce": "Luyện thêm bài tập để củng cố",
-            "advance": "Tiếp tục với bài tập vận dụng cao hơn",
+            "remediate": "Review prerequisite knowledge and complete foundational practice",
+            "reinforce": "Complete additional practice to strengthen retention",
+            "advance": "Continue with higher-level application tasks",
         }
         steps: list[LearningPathStep] = []
         for row in evidence_rows:
@@ -115,7 +115,7 @@ class TakerService:
                 row["unit_code"],
                 "reinforce",
             )
-            action = actions.get(recommendation, "Tiếp tục học theo lộ trình đề xuất")
+            action = actions.get(recommendation, "Continue with the recommended learning path")
             steps.append(
                 LearningPathStep(
                     priority=0,
@@ -128,8 +128,8 @@ class TakerService:
                     evidence_count=row["evidence_count"],
                     action=action,
                     explanation=(
-                        f"Dựa trên {row['evidence_count']} câu đã trả lời, mức chính xác "
-                        f"ở {row['unit_name']} là {accuracy:.1f}%."
+                        f"Based on {row['evidence_count']} answered questions, accuracy "
+                        f"for {row['unit_name']} is {accuracy:.1f}%."
                     ),
                 )
             )
@@ -148,8 +148,8 @@ class TakerService:
                     unit_type="subject",
                     accuracy_percent=None,
                     evidence_count=0,
-                    action="Hoàn thành bài đánh giá đầu tiên",
-                    explanation="Chưa có bằng chứng làm bài cho môn học này.",
+                    action="Complete the first assessment",
+                    explanation="No completed-response evidence exists for this subject.",
                 )
             )
 
@@ -199,11 +199,11 @@ class TakerService:
     @staticmethod
     def _understanding_label(percentage: float | None) -> str:
         if percentage is None:
-            return "Chưa có bài đánh giá"
+            return "Not assessed"
         if percentage < 50:
-            return "Cần ôn tập thêm"
+            return "Needs review"
         if percentage < 70:
-            return "Đã hiểu kiến thức cơ bản"
+            return "Foundational understanding"
         if percentage < 85:
-            return "Hiểu tốt"
-        return "Hiểu rất tốt"
+            return "Good understanding"
+        return "Strong understanding"

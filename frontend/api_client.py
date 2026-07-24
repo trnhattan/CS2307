@@ -37,6 +37,9 @@ class ExamAPIClient:
             json={"subject_codes": subject_codes},
         )
 
+    def generate_with_blueprint(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/api/v1/exams/generate", json=payload)
+
     def start_cat(self, subject_code: str) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -144,6 +147,16 @@ class ExamAPIClient:
             "PUT", "/api/v1/supervisor/config/cat", json=payload
         )
 
+    def latest_calibration(self) -> dict[str, Any]:
+        return self._request("GET", "/api/v1/calibration/latest")
+
+    def run_calibration(self, apply_eligible: bool = False) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/api/v1/calibration/run",
+            json={"apply_eligible": apply_eligible},
+        )
+
     def admin_dashboard(self) -> dict[str, Any]:
         return self._request("GET", "/api/v1/admin/dashboard")
 
@@ -223,7 +236,7 @@ class ExamAPIClient:
         headers = dict(kwargs.pop("headers", {}))
         if authenticated:
             if not self.token:
-                raise APIClientError("Phiên đăng nhập không hợp lệ.")
+                raise APIClientError("Your sign-in session is not valid.")
             headers["Authorization"] = f"Bearer {self.token}"
         try:
             response = requests.request(
@@ -235,7 +248,7 @@ class ExamAPIClient:
             )
         except requests.RequestException as error:
             raise APIClientError(
-                f"Không thể kết nối backend tại {self.base_url}."
+                f"Unable to connect to the backend at {self.base_url}."
             ) from error
 
         if response.ok:

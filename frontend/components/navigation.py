@@ -5,23 +5,25 @@ from frontend.state import go, logout
 
 ROLE_NAVIGATION = {
     "exam_taker": [
-        ("taker_dashboard", "Tiến độ"),
-        ("subjects", "Bắt đầu bài thi"),
-        ("knowledge_graph", "Lộ trình trực quan"),
+        ("taker_dashboard", "Progress"),
+        ("subjects", "Start test"),
+        ("knowledge_graph", "Learning graph"),
     ],
     "supervisor": [
-        ("supervisor", "Tổng quan thí sinh"),
-        ("supervisor_config", "Cấu hình đề thi"),
-        ("llm_generation", "Bản nháp LLM"),
-        ("knowledge_graph", "Đồ thị năng lực"),
+        ("supervisor", "Taker overview"),
+        ("supervisor_config", "Exam configuration"),
+        ("calibration", "IRT calibration"),
+        ("llm_generation", "LLM workspace"),
+        ("knowledge_graph", "Ability graph"),
     ],
     "admin": [
-        ("admin", "Tổng quan hệ thống"),
-        ("admin_questions", "Ngân hàng câu hỏi"),
-        ("admin_config", "Cấu hình"),
-        ("admin_accounts", "Tài khoản"),
-        ("llm_generation", "Bản nháp LLM"),
-        ("knowledge_graph", "Đồ thị năng lực"),
+        ("admin", "System overview"),
+        ("admin_questions", "Question bank"),
+        ("admin_config", "Configuration"),
+        ("admin_accounts", "Accounts"),
+        ("calibration", "IRT calibration"),
+        ("llm_generation", "LLM workspace"),
+        ("knowledge_graph", "Ability graph"),
     ],
 }
 
@@ -30,11 +32,27 @@ def render_navigation() -> None:
     user = st.session_state.user
     navigation = list(ROLE_NAVIGATION[user["role"]])
     if user["role"] == "exam_taker" and st.session_state.exam_payload:
-        navigation.append(("exam", "Bài đang làm"))
+        navigation.append(("exam", "Current test"))
     if user["role"] == "exam_taker" and st.session_state.cat_payload:
-        navigation.append(("cat_exam", "CAT đang làm"))
+        navigation.append(("cat_exam", "Current CAT"))
 
-    columns = st.columns([*([1] * len(navigation)), 1.3, 0.8])
+    identity = st.columns([4.5, 1.8, 0.9])
+    with identity[0]:
+        st.markdown(
+            "<div class='workspace-name'>Adaptive Ability Assessment</div>",
+            unsafe_allow_html=True,
+        )
+    with identity[1]:
+        st.markdown(
+            f"<div class='user-pill'>{user['display_name']} · "
+            f"{_role_label(user['role'])}</div>",
+            unsafe_allow_html=True,
+        )
+    with identity[2]:
+        if st.button("Sign out", key="nav_logout", width="stretch"):
+            logout()
+
+    columns = st.columns([1] * len(navigation), gap="small")
     for column, (page, label) in zip(columns, navigation):
         with column:
             if st.button(
@@ -44,21 +62,12 @@ def render_navigation() -> None:
                 width="stretch",
             ):
                 go(page)
-    with columns[-2]:
-        st.markdown(
-            f"<div class='user-pill'>{user['display_name']} · "
-            f"{_role_label(user['role'])}</div>",
-            unsafe_allow_html=True,
-        )
-    with columns[-1]:
-        if st.button("Đăng xuất", key="nav_logout", width="stretch"):
-            logout()
     st.divider()
 
 
 def _role_label(role: str) -> str:
     return {
-        "exam_taker": "Thí sinh",
-        "supervisor": "Giám sát",
-        "admin": "Quản trị",
+        "exam_taker": "Exam taker",
+        "supervisor": "Supervisor",
+        "admin": "Administrator",
     }[role]

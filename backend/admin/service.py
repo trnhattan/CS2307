@@ -45,7 +45,7 @@ class AdminService:
                     rejected[question_code] = [
                         QuestionValidationIssue(
                             code="not_found",
-                            message="Không tìm thấy câu hỏi",
+                            message="Question not found",
                             severity="blocking",
                         )
                     ]
@@ -72,7 +72,7 @@ class AdminService:
         async with self._session_factory() as session:
             row = await self._repository.question_detail(session, question_code)
         if row is None:
-            raise QuestionNotFoundError("Không tìm thấy câu hỏi")
+            raise QuestionNotFoundError("Question not found")
         return QuestionDetail(**row)
 
     async def update_question(
@@ -80,7 +80,7 @@ class AdminService:
     ) -> QuestionDetail:
         async with self._session_factory() as session:
             if await self._repository.question_detail(session, question_code) is None:
-                raise QuestionNotFoundError("Không tìm thấy câu hỏi")
+                raise QuestionNotFoundError("Question not found")
             await self._repository.update_question_metadata(
                 session,
                 question_code,
@@ -96,7 +96,7 @@ class AdminService:
         async with self._session_factory() as session:
             data = await self._repository.validation_data(session, question_code)
             if data is None:
-                raise QuestionNotFoundError("Không tìm thấy câu hỏi")
+                raise QuestionNotFoundError("Question not found")
             issues = self._validation_issues(data)
             valid = not any(issue.severity == "blocking" for issue in issues)
             report = {
@@ -120,7 +120,7 @@ class AdminService:
     ) -> QuestionReviewResponse:
         review = await self.review_question(question_code, reviewer)
         if not review.valid:
-            raise QuestionValidationError("Câu hỏi còn lỗi chặn và không thể kích hoạt")
+            raise QuestionValidationError("The question has blocking issues and cannot be activated")
         async with self._session_factory() as session:
             await self._repository.activate_question(session, question_code, reviewer)
             await session.commit()
@@ -155,16 +155,16 @@ class AdminService:
         limitations = []
         if gap:
             limitations.append(
-                f"Ngân hàng hiện có {data['total_questions']} câu, thiếu {gap} câu so với "
-                "mục tiêu học phần; hệ thống không tự sinh bù."
+                f"The bank has {data['total_questions']} questions and is {gap} below the "
+                "coursework target; the system does not silently pad the bank."
             )
         pending_review = data["total_questions"] - data["active_questions"]
         if pending_review:
             limitations.append(
-                f"Có {pending_review} câu chưa active và cần quản trị viên review rõ ràng."
+                f"{pending_review} questions are not active and require explicit administrator review."
             )
         if any(not subject.cat_feasible for subject in subjects):
-            limitations.append("Một hoặc nhiều môn chưa đủ câu active cho CAT tối thiểu.")
+            limitations.append("One or more subjects lack enough active questions for the CAT minimum.")
         return QuestionReadinessResponse(
             total_questions=data["total_questions"],
             active_questions=data["active_questions"],
@@ -182,38 +182,38 @@ class AdminService:
             issues.append(QuestionValidationIssue(code=code, message=message, severity=severity))
 
         if not data["is_pool_valid"]:
-            add("invalid_answer_pool", "Pool phương án hoặc đáp án tốt nhất không hợp lệ")
+            add("invalid_answer_pool", "The answer pool or best answer is invalid")
         if data.get("invalid_option_count", 0):
-            add("invalid_option_metadata", "Nội dung hoặc trọng số đáp án không hợp lệ")
+            add("invalid_option_metadata", "Answer content or score weights are invalid")
         if data.get("duplicate_option_count", 0):
-            add("duplicate_options", "Các phương án trả lời bị trùng nội dung")
+            add("duplicate_options", "Answer options contain duplicate text")
         if not data["explanation"] or not str(data["explanation"]).strip():
-            add("missing_explanation", "Thiếu giải thích đáp án")
+            add("missing_explanation", "The answer explanation is missing")
         if not data["source"] or not str(data["source"]).strip():
-            add("missing_source", "Thiếu nguồn câu hỏi")
+            add("missing_source", "The question source is missing")
         if not isinstance(data.get("provenance"), dict) or not data["provenance"]:
-            add("missing_provenance", "Thiếu provenance của câu hỏi")
+            add("missing_provenance", "Question provenance is missing")
         if data["topic_count"] != 1:
-            add("invalid_topic", "Câu hỏi phải có đúng một chủ đề")
+            add("invalid_topic", "A question must have exactly one topic")
         if data["primary_skill_count"] != 1:
-            add("invalid_primary_skill", "Câu hỏi phải có đúng một kỹ năng chính")
+            add("invalid_primary_skill", "A question must have exactly one primary skill")
         if data["duplicate_stem"]:
-            add("duplicate_stem", "Nội dung câu hỏi trùng với câu khác")
+            add("duplicate_stem", "The stem duplicates another question")
         elif any(
             AdminService._stem_similarity(data["stem"], other) >= 0.85
             for other in data.get("other_stems") or []
         ):
-            add("near_duplicate_stem", "Nội dung câu hỏi quá giống câu khác")
+            add("near_duplicate_stem", "The stem is too similar to another question")
         if float(data["irt_a"]) <= 0 or not -4 <= float(data["irt_b"]) <= 4 or not 0 <= float(data["irt_c"]) <= 0.5:
-            add("invalid_irt_parameters", "Tham số IRT nằm ngoài miền hợp lệ")
+            add("invalid_irt_parameters", "IRT parameters are outside the valid domain")
         norm = float(data["difficulty_norm"])
         label = data["difficulty_label"]
         if (label == "easy" and norm > 0.4) or (label == "medium" and not 0.3 <= norm <= 0.75) or (label == "hard" and norm < 0.65):
-            add("difficulty_mismatch", "Nhãn độ khó không khớp difficulty_norm")
+            add("difficulty_mismatch", "The difficulty label does not match difficulty_norm")
         if data["bloom_level"] == "remember" and label == "hard":
-            add("bloom_difficulty_warning", "Bloom remember được gắn nhãn hard", "warning")
+            add("bloom_difficulty_warning", "A remember-level item is labeled hard", "warning")
         if data["bloom_level"] == "evaluate" and label == "easy":
-            add("bloom_difficulty_warning", "Bloom evaluate được gắn nhãn easy", "warning")
+            add("bloom_difficulty_warning", "An evaluate-level item is labeled easy", "warning")
         return issues
 
     @staticmethod
@@ -262,7 +262,7 @@ class AdminService:
         )
         async with self._session_factory() as session:
             if await self._repository.account_exists(session, username):
-                raise AccountConflictError("Tên đăng nhập đã tồn tại")
+                raise AccountConflictError("The username already exists")
             student_id = None
             if student_code:
                 student_id = await self._repository.ensure_student(
@@ -283,7 +283,7 @@ class AdminService:
             except IntegrityError as error:
                 await session.rollback()
                 raise AccountConflictError(
-                    "Mã sinh viên đã được liên kết với tài khoản khác"
+                    "The student code is already linked to another account"
                 ) from error
         return AccountItem(**row, student_code=student_code)
 
@@ -295,7 +295,7 @@ class AdminService:
     ) -> AccountItem:
         normalized = username.strip().lower()
         if normalized == actor and request.is_active is False:
-            raise AdminError("Bạn không thể vô hiệu hóa tài khoản đang đăng nhập")
+            raise AdminError("You cannot deactivate the account currently signed in")
         async with self._session_factory() as session:
             row = await self._repository.update_account(
                 session,
@@ -309,7 +309,7 @@ class AdminService:
                 is_active=request.is_active,
             )
             if row is None:
-                raise AccountNotFoundError("Không tìm thấy tài khoản")
+                raise AccountNotFoundError("Account not found")
             if request.display_name and row["student_id"] is not None:
                 await self._repository.update_student_name(
                     session,

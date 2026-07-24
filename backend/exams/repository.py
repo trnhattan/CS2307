@@ -124,7 +124,7 @@ class ExamRepository:
                     q.version_no,
                     COALESCE(
                         MAX(unit.unit_name) FILTER (WHERE link.unit_role = 'topic'),
-                        'Chủ đề tổng hợp'
+                        'Combined topic'
                     ) AS topic_name,
                     COALESCE(
                         MAX(unit.unit_code) FILTER (WHERE link.unit_role = 'topic'),
@@ -385,6 +385,7 @@ class ExamRepository:
                     item.question_id,
                     item.displayed_options,
                     question.question_code,
+                    question.stem,
                     question.explanation,
                     question.irt_a,
                     question.irt_b,

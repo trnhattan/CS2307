@@ -8,17 +8,17 @@ def render() -> None:
     st.markdown(
         """
         <div class="hero">
-          <div class="eyebrow">CS2307 · Công nghệ tri thức</div>
-          <h1>Hệ thống sinh đề và<br/>đánh giá năng lực thích ứng</h1>
-          <p>Không gian kiểm tra trực quan, thân thiện và được cá nhân hóa theo
-          quá trình học tập của từng sinh viên.</p>
+          <div class="eyebrow">CS2307 · Knowledge Engineering</div>
+          <h1>Adaptive exam generation<br/>and ability assessment</h1>
+          <p>A clear, responsive testing experience personalized from each
+          learner's accumulated evidence.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
     st.write("")
-    st.markdown("<div class='section-title'>Nhóm thực hiện</div>", unsafe_allow_html=True)
-    st.caption("Cập nhật tên và mã số sinh viên trước khi trình bày.")
+    st.markdown("<div class='section-title'>Project team</div>", unsafe_allow_html=True)
+    st.caption("Replace the placeholders with team names and student IDs before presenting.")
     columns = st.columns(5)
     for index, column in enumerate(columns, start=1):
         with column:
@@ -26,7 +26,7 @@ def render() -> None:
                 f"""
                 <div class="member">
                   <div class="avatar">{index}</div>
-                  <strong>Tên thành viên {index}</strong><br/>
+                  <strong>Member {index}</strong><br/>
                   <small>0000000000</small>
                 </div>
                 """,
@@ -35,8 +35,8 @@ def render() -> None:
     st.write("")
     _, login, signup, _ = st.columns([2.2, 1, 1, 2.2])
     with login:
-        if st.button("Đăng nhập", type="primary", width="stretch"):
+        if st.button("Sign in", type="primary", width="stretch"):
             render_login_dialog()
     with signup:
-        if st.button("Đăng ký", width="stretch"):
+        if st.button("Sign up", width="stretch"):
             render_register_dialog()

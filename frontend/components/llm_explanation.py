@@ -9,13 +9,13 @@ def render_explanation_action(
     *,
     technical: bool,
 ) -> None:
-    key = f"llm_explanation_{'staff' if technical else 'taker'}_{session_id}"
+    key = f"llm_explanation_grounded_v1_{'staff' if technical else 'taker'}_{session_id}"
     cached = st.session_state.get(key)
-    label = "Tạo diễn giải kỹ thuật" if technical else "Nhận nhận xét học tập"
-    st.caption("Chỉ gọi LLM khi bạn bấm nút; kết quả được lưu để không tốn token lặp lại.")
+    label = "Generate technical explanation" if technical else "Get Vietnamese learning feedback"
+    st.caption("The LLM runs only on request. The Vietnamese response is persisted and reused to control token cost.")
     if st.button(label, key=f"button_{key}", width="stretch"):
         try:
-            with st.spinner("Đang diễn giải từ bằng chứng đã chấm..."):
+            with st.spinner("Generating Vietnamese feedback from scored evidence..."):
                 cached = (
                     client.staff_exam_explanation(session_id)
                     if technical
@@ -28,11 +28,15 @@ def render_explanation_action(
     if not cached:
         return
     st.info(cached["explanation"])
+    st.caption(
+        f"Persisted artifact #{cached['artifact_id']} · model {cached['model']} · "
+        f"{'cache reused' if cached.get('cached') else 'new generation'}"
+    )
     if cached.get("evidence_used"):
-        with st.expander("Bằng chứng được dùng"):
+        with st.expander("Evidence used"):
             for value in cached["evidence_used"]:
                 st.write(f"- {value}")
     if cached.get("limitations"):
-        st.caption("Giới hạn: " + " · ".join(cached["limitations"]))
+        st.caption("Limitations: " + " · ".join(cached["limitations"]))
     if cached.get("cached"):
-        st.caption("Đã dùng bản diễn giải được lưu trước đó.")
+        st.caption("The persisted explanation was reused; no additional LLM call was made.")

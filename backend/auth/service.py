@@ -34,7 +34,7 @@ class AuthService:
         stored_hash = record["password_hash"] if record else self._dummy_hash
         valid = verify_password(password, stored_hash)
         if not record or not valid or not record["is_active"]:
-            raise AuthenticationError("Tên đăng nhập hoặc mật khẩu không đúng")
+            raise AuthenticationError("The username or password is incorrect")
 
         user = AuthenticatedUser(
             user_id=record["user_id"],

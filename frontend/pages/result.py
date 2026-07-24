@@ -14,20 +14,22 @@ def render(client: ExamAPIClient) -> None:
         go("subjects")
         return
     render_header()
-    st.markdown("<div class='section-title'>Kết quả môn thi</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>Subject result</div>", unsafe_allow_html=True)
     score, percent = st.columns(2)
-    score.metric("Điểm", f"{result['total_score']:.1f}/{result['max_score']:.0f}")
-    percent.metric("Tỷ lệ", f"{result['percentage']:.1f}%")
-    st.success(f"Mức độ hiểu bài: **{result['understanding_label']}**")
+    score.metric("Score", f"{result['total_score']:.1f}/{result['max_score']:.0f}")
+    percent.metric("Percentage", f"{result['percentage']:.1f}%")
+    st.success(f"Understanding: **{result['understanding_label']}**")
     render_explanation_action(client, result["session_id"], technical=False)
 
-    with st.expander("Xem đáp án và giải thích", expanded=False):
+    with st.expander("Review answers and explanations", expanded=False):
         for index, item in enumerate(result["feedback"], start=1):
             icon = "✅" if item["is_correct"] else "❌"
-            st.markdown(f"**{icon} Câu {index}**")
-            st.write(f"Bạn chọn: {item['selected_option_text']}")
+            st.markdown(f"**{icon} Question {index}**")
+            if item.get("stem"):
+                st.markdown(f"**{item['stem']}**")
+            st.write(f"Your answer: {item['selected_option_text']}")
             if not item["is_correct"]:
-                st.write(f"Đáp án đúng: {item['correct_option_text']}")
+                st.write(f"Best answer: {item['correct_option_text']}")
             if item["explanation"]:
                 st.caption(item["explanation"])
             st.divider()
@@ -36,12 +38,12 @@ def render(client: ExamAPIClient) -> None:
         st.session_state.exam_payload["sessions"]
     )
     if has_next:
-        if st.button("Tiếp tục môn kế tiếp →", type="primary", width="stretch"):
+        if st.button("Continue to the next subject →", type="primary", width="stretch"):
             st.session_state.session_index += 1
             next_session = st.session_state.exam_payload["sessions"][
                 st.session_state.session_index
             ]
             st.session_state.exam_started_at[str(next_session["session_id"])] = time.time()
             go("exam")
-    elif st.button("Xem tổng kết", type="primary", width="stretch"):
+    elif st.button("View test summary", type="primary", width="stretch"):
         go("summary")

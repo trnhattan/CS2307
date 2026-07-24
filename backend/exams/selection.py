@@ -112,9 +112,9 @@ def select_fixed_exam(
                     candidate=chosen,
                     information=information,
                     reason=(
-                        f"Phù hợp mức {label}, cung cấp Fisher information "
-                        f"{information:.3f} tại theta={theta:.2f}, đồng thời cân bằng "
-                        f"chủ đề {chosen.topic_name}."
+                        f"Matches the {label} target, provides Fisher information "
+                        f"{information:.3f} at theta={theta:.2f}, and balances "
+                        f"topic {chosen.topic_name}."
                     ),
                 )
             )

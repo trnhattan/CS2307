@@ -6,8 +6,10 @@ import httpx
 import pytest
 
 from backend.explanations.service import ExamExplanationService
+from backend.explanations.schemas import ExplanationPayload
 from backend.generation.rubric import initial_irt
 from backend.generation.schemas import GeneratedQuestionPayload, QuestionGenerationRequest
+from backend.prompts import load_prompt
 from backend.generation.validator import validate_generated_question
 from backend.llm.client import OpenAICompatibleClient
 from backend.llm.errors import LLMConfigurationError
@@ -119,7 +121,104 @@ def test_taker_explanation_prompt_excludes_staff_metrics() -> None:
     assert "theta" not in messages[1]["content"].lower()
 
 
+def test_llm_prompts_are_external_and_language_specific() -> None:
+    question_prompt = load_prompt("question_generation_system_en.txt")
+    explanation_prompt = load_prompt("exam_explanation_system_vi.txt")
+
+    assert "in English" in question_prompt
+    assert "tiếng Việt" in explanation_prompt
+    assert "{audience_instruction}" in explanation_prompt
+
+
+def test_correct_option_marker_is_normalized_without_relaxing_distractors() -> None:
+    payload = GeneratedQuestionPayload.model_validate(
+        {
+            "stem": "Which SQL clause filters source rows before grouping occurs?",
+            "options": [
+                {"text": "WHERE", "distractor_type": "correct"},
+                {"text": "HAVING", "distractor_type": "misconception"},
+            ],
+            "correct_index": 0,
+            "explanation": "WHERE filters source rows before GROUP BY evaluates groups.",
+            "bloom_rationale": "Recall the SQL processing role.",
+        }
+    )
+
+    assert payload.options[0].distractor_type == "clear_wrong"
+
+
 def test_explanation_ownership_parameter_is_typed_for_asyncpg() -> None:
     source = Path("backend/explanations/repository.py").read_text()
 
     assert "CAST(:student_id AS BIGINT)" in source
+
+
+def test_xai_evidence_is_grounded_in_deterministic_score_context() -> None:
+    context = {
+        "score": {
+            "earned": 4.0,
+            "maximum": 20.0,
+            "percentage": 20.0,
+            "correct": 4,
+            "questions": 20,
+        },
+        "unit_evidence": [
+            {
+                "unit": "SQL Querying",
+                "accuracy_percent": 25.0,
+                "evidence_count": 4,
+                "recommendation": "remediate",
+            },
+            {
+                "unit": "Transaction atomicity",
+                "accuracy_percent": 100.0,
+                "evidence_count": 1,
+                "recommendation": "advance",
+            },
+        ],
+    }
+    generated = ExplanationPayload(
+        explanation="Bạn nên ưu tiên ôn lại SQL cơ bản trước.",
+        evidence_used=["Điểm số tổng thể 20/20 (10%)"],
+        limitations=[],
+    )
+
+    grounded = ExamExplanationService._ground_payload(
+        generated, context, technical=False
+    )
+
+    assert grounded.evidence_used[0] == (
+        "Điểm đã chấm: 4/20 (20.0%); đúng 4/20 câu."
+    )
+    assert "20/20 (10%)" not in grounded.model_dump_json()
+
+
+def test_xai_replaces_conflicting_numeric_prose() -> None:
+    context = {
+        "score": {
+            "earned": 4.0,
+            "maximum": 20.0,
+            "percentage": 20.0,
+            "correct": 4,
+            "questions": 20,
+        },
+        "unit_evidence": [],
+    }
+    generated = ExplanationPayload(
+        explanation="Bạn đạt 20/20, tương đương 10%.",
+        evidence_used=[],
+        limitations=[],
+    )
+
+    grounded = ExamExplanationService._ground_payload(
+        generated, context, technical=False
+    )
+
+    assert grounded.explanation.startswith("Kết quả đã chấm là 4/20 (20.0%).")
+    assert any("số liệu không khớp" in value for value in grounded.limitations)
+
+
+def test_xai_cache_requires_grounding_version() -> None:
+    source = Path("backend/explanations/repository.py").read_text()
+
+    assert "deterministic-evidence-v1" in source

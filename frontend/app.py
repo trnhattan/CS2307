@@ -17,6 +17,7 @@ from frontend.pages import (
     admin_questions,
     cat_exam,
     cat_result,
+    calibration,
     exam,
     knowledge_graph,
     landing,
@@ -32,7 +33,7 @@ from frontend.state import ROLE_DEFAULT_PAGE, allowed_page, initialize_state
 
 
 st.set_page_config(
-    page_title="Đánh giá năng lực thích ứng",
+    page_title="Adaptive Ability Assessment",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -58,6 +59,7 @@ pages = {
     "result": lambda: result.render(client),
     "cat_exam": lambda: cat_exam.render(client),
     "cat_result": lambda: cat_result.render(client),
+    "calibration": lambda: calibration.render(client),
     "knowledge_graph": lambda: knowledge_graph.render(client),
     "summary": lambda: summary.render(),
     "supervisor": lambda: supervisor.render(client),

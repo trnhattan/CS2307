@@ -3,7 +3,7 @@
 -- Target DBMS: PostgreSQL 15+
 -- Encoding: UTF-8
 --
--- Quy mô chủ đích: 16 bảng sau khi bổ sung nhật ký LLM.
+-- Intended scope: 17 tables after LLM audit and empirical calibration support.
 -- Mỗi bảng chỉ được giữ khi phục vụ ít nhất một trong bốn mục tiêu:
 --   (1) ngân hàng 200 câu hỏi / 2 môn;
 --   (2) sinh đề, lưu bài làm và cập nhật năng lực;
@@ -349,7 +349,7 @@ COMMENT ON COLUMN exam_items.displayed_options IS
 'JSON array snapshot: [{option_code, option_text, score_weight, is_best_answer, display_order}]';
 
 COMMENT ON COLUMN exam_items.irt_response IS
-'Phản hồi nhị phân cho IRT 3PL: 1 nếu chọn đáp án tốt nhất, ngược lại 0. awarded_score có thể vẫn là partial credit.';
+'Binary response for IRT 3PL: 1 for the best answer and 0 otherwise. awarded_score may still retain partial credit.';
 
 -- ============================================================
 -- C. RELA-MODEL K = (C, R, Rules) VÀ VẾT SUY LUẬN (4 bảng)
@@ -546,6 +546,23 @@ CREATE TABLE llm_artifacts (
         CHECK (jsonb_typeof(usage) = 'object')
 );
 
+CREATE TABLE irt_calibration_runs (
+    run_id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    method              VARCHAR(80) NOT NULL,
+    total_responses     INTEGER NOT NULL,
+    evaluated_items     INTEGER NOT NULL,
+    eligible_items      INTEGER NOT NULL,
+    applied_items       INTEGER NOT NULL,
+    summary             JSONB NOT NULL,
+    created_by          VARCHAR(100) NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT ck_irt_calibration_counts CHECK (
+        total_responses >= 0 AND evaluated_items >= 0 AND
+        eligible_items >= 0 AND applied_items >= 0
+    ),
+    CONSTRAINT ck_irt_calibration_summary CHECK (jsonb_typeof(summary) = 'object')
+);
+
 -- ============================================================
 -- E. INDEX, VIEW KIỂM TRA VÀ updated_at
 -- ============================================================
@@ -678,8 +695,8 @@ FROM configured;
 
 INSERT INTO students (student_code, display_name)
 VALUES
-    ('TAKER001', 'Sinh viên 1'),
-    ('TAKER002', 'Sinh viên 2')
+    ('TAKER001', 'Student 1'),
+    ('TAKER002', 'Student 2')
 ON CONFLICT (student_code) DO UPDATE SET
     display_name = EXCLUDED.display_name,
     is_active = TRUE;
@@ -691,28 +708,28 @@ VALUES
     (
         'admin',
         'pbkdf2_sha256$310000$cs2307-admin-salt$5M62y8rWbox9ncP1o-HMpwSoZNEe2D4mP860PO2fPqQ',
-        'Quản trị hệ thống',
+        'System Administrator',
         'admin',
         NULL
     ),
     (
         'supervisor',
         'pbkdf2_sha256$310000$cs2307-supervisor-salt$dsoRs-hWeUPMqDZr-6TON5K7U4vIAiKr8HHkQvMbtDE',
-        'Giám sát kỳ thi',
+        'Exam Supervisor',
         'supervisor',
         NULL
     ),
     (
         'taker1',
         'pbkdf2_sha256$310000$cs2307-taker1-salt$atTjJfMRy_3sdgMQW_sVdMFJmUwQJz2G9M4zlIa5HhM',
-        'Sinh viên 1',
+        'Student 1',
         'exam_taker',
         (SELECT student_id FROM students WHERE student_code = 'TAKER001')
     ),
     (
         'taker2',
         'pbkdf2_sha256$310000$cs2307-taker2-salt$9eCNSFS1QeVYJq6vKgnRvdxQ-YeiaIKQmGG2Mde0nCg',
-        'Sinh viên 2',
+        'Student 2',
         'exam_taker',
         (SELECT student_id FROM students WHERE student_code = 'TAKER002')
     );
@@ -720,116 +737,120 @@ VALUES
 INSERT INTO sys_props (prop_key, prop_value, description, is_editable)
 VALUES
     ('QUESTION_BANK_TARGET_SIZE', '200'::JSONB,
-     'Tổng số câu hỏi mục tiêu của đồ án.', TRUE),
+     'Target number of questions for the coursework.', TRUE),
     ('DEFAULT_EXAM_QUESTION_COUNT', '20'::JSONB,
-     'Số câu hỏi mặc định của một đề thi.', TRUE),
+     'Default number of questions in a fixed exam.', TRUE),
     ('DISPLAY_OPTION_COUNT', '4'::JSONB,
-     'Số phương án được chọn từ pool và hiển thị.', TRUE),
+     'Number of answer options displayed from the answer pool.', TRUE),
     ('ANSWER_POOL_SIZE_BY_BLOOM',
      '{"remember":4,"understand":5,"apply":6,"analyze":8,"evaluate":10}'::JSONB,
-     'Kích thước pool đáp án theo 5 mức Bloom.', TRUE),
+     'Required answer-pool size for each supported Bloom level.', TRUE),
     ('MUST_INCLUDE_BEST_ANSWER', 'true'::JSONB,
-     'Tập phương án hiển thị phải chứa đáp án tốt nhất.', TRUE),
+     'Displayed answer options must include the best answer.', TRUE),
     ('RANDOMIZE_OPTION_ORDER', 'true'::JSONB,
-     'Đảo thứ tự phương án khi hiển thị.', TRUE),
+     'Randomize answer-option order when presenting a question.', TRUE),
     ('IRT_MODEL', '"3PL"'::JSONB,
-     'Mô hình IRT dùng để ước lượng năng lực.', FALSE),
+     'IRT model used for ability estimation.', FALSE),
     ('PARTIAL_CREDIT_AFFECTS_IRT', 'false'::JSONB,
-     'IRT 3PL dùng irt_response nhị phân; partial credit chỉ dùng cho điểm và chẩn đoán.', FALSE),
+     'IRT 3PL uses binary responses; partial credit is limited to scoring and diagnostics.', FALSE),
     ('CAT_INITIAL_THETA', '0.0'::JSONB,
-     'Năng lực ban đầu khi sinh viên chưa có lịch sử.', TRUE),
+     'Initial ability when an exam taker has no prior evidence.', TRUE),
     ('CAT_MIN_QUESTION_COUNT', '10'::JSONB,
-     'Số câu tối thiểu trước khi CAT được phép dừng.', TRUE),
+     'Minimum answered questions before CAT may stop.', TRUE),
     ('CAT_MAX_QUESTION_COUNT', '30'::JSONB,
-     'Số câu tối đa của một phiên CAT.', TRUE),
+     'Maximum questions in a CAT session.', TRUE),
     ('CAT_STOP_STANDARD_ERROR', '0.30'::JSONB,
-     'Ngưỡng sai số chuẩn để dừng CAT.', TRUE),
+     'Standard-error threshold for CAT stopping.', TRUE),
     ('CAT_STABILITY_EPSILON', '0.05'::JSONB,
-     'Biên độ theta ổn định để dừng CAT.', TRUE),
+     'Theta-change epsilon used by CAT stability stopping.', TRUE),
     ('CAT_STABILITY_WINDOW', '3'::JSONB,
-     'Số lần cập nhật theta ổn định liên tiếp.', TRUE),
+     'Number of consecutive stable theta updates required for stopping.', TRUE),
     ('CAT_INFORMATION_WEIGHT', '1.0'::JSONB,
-     'Trọng số Fisher information khi chọn câu CAT.', TRUE),
+     'Fisher-information weight in CAT selection.', TRUE),
     ('CAT_WEAK_UNIT_WEIGHT', '0.35'::JSONB,
-     'Trọng số ưu tiên đơn vị tri thức yếu.', TRUE),
+     'Weak-knowledge-unit priority weight in CAT selection.', TRUE),
     ('CAT_CONTENT_BALANCE_WEIGHT', '0.20'::JSONB,
-     'Trọng số cân bằng nội dung CAT.', TRUE),
+     'Content-balance weight in CAT selection.', TRUE),
     ('CAT_EXPOSURE_PENALTY', '0.15'::JSONB,
-     'Mức phạt câu hỏi có độ phơi nhiễm cao.', TRUE),
+     'Penalty applied to highly exposed questions.', TRUE),
     ('CAT_DIFFICULTY_DISTRIBUTION',
      '{"easy":0.3,"medium":0.4,"hard":0.3}'::JSONB,
-     'Phân bố độ khó mặc định của CAT.', TRUE),
+     'Default CAT difficulty distribution.', TRUE),
     ('CAT_TOPIC_CODES', '[]'::JSONB,
-     'Giới hạn chủ đề CAT; rỗng nghĩa là mọi chủ đề.', TRUE),
+     'CAT topic constraint; an empty list allows every topic.', TRUE),
     ('CAT_SKILL_CODES', '[]'::JSONB,
-     'Giới hạn kỹ năng CAT; rỗng nghĩa là mọi kỹ năng.', TRUE),
+     'CAT skill constraint; an empty list allows every skill.', TRUE),
     ('CAT_BLOOM_LEVELS', '[]'::JSONB,
-     'Giới hạn Bloom CAT; rỗng nghĩa là mọi mức.', TRUE),
+     'CAT Bloom constraint; an empty list allows every supported level.', TRUE),
     ('LEARNING_REMEDIATE_THRESHOLD', '0.5'::JSONB,
-     'Ngưỡng đề xuất ôn nền.', TRUE),
+     'Accuracy threshold below which remediation is recommended.', TRUE),
     ('LEARNING_ADVANCE_THRESHOLD', '0.75'::JSONB,
-     'Ngưỡng đề xuất bài nâng cao.', TRUE),
+     'Accuracy threshold at which advanced learning is recommended.', TRUE),
     ('FIXED_EXAM_DIFFICULTY_DISTRIBUTION',
      '{"easy":0.3,"medium":0.4,"hard":0.3}'::JSONB,
-     'Tỷ lệ độ khó mặc định cho đề thi cố định.', TRUE),
+     'Default difficulty distribution for fixed exams.', TRUE),
     ('EXAM_ALLOWED_QUESTION_STATUSES',
      '["active"]'::JSONB,
-     'Chỉ câu hỏi active được phép dùng trong đề thi.', TRUE),
+     'Question statuses eligible for operational exams.', TRUE),
     ('EXAM_GENERATION_STRATEGY', '"irt_information_balanced"'::JSONB,
-     'Chiến lược sinh đề cố định có cân bằng nội dung và Fisher information.', TRUE),
+     'Fixed-exam selection strategy balancing constraints and Fisher information.', TRUE),
     ('IRT_SCALE_CONSTANT', '1.7'::JSONB,
-     'Hằng số D trong mô hình IRT 3PL.', FALSE),
+     'Scale constant D in the IRT 3PL model.', FALSE),
+    ('IRT_CALIBRATION_MIN_RESPONSES', '30'::JSONB,
+     'Minimum real responses before an item estimate is more than descriptive.', TRUE),
+    ('IRT_CALIBRATION_APPLY_MIN_RESPONSES', '100'::JSONB,
+     'Minimum real responses before empirical difficulty may update production parameters.', TRUE),
     ('LLM_ENABLED', 'true'::JSONB,
-     'Cho phép các thao tác LLM theo yêu cầu rõ ràng của người dùng.', TRUE),
+     'Enable explicit, user-triggered LLM operations.', TRUE),
     ('LLM_MODEL', '"qwen3.5-4b"'::JSONB,
-     'Tên model OpenAI-compatible; khóa API chỉ nằm trong biến môi trường.', TRUE),
+     'OpenAI-compatible model name; the API key remains in the environment.', TRUE),
     ('LLM_QUESTION_MAX_TOKENS', '1600'::JSONB,
-     'Ngân sách token đầu ra tối đa cho một bản nháp câu hỏi.', TRUE),
+     'Maximum output-token budget for one question draft.', TRUE),
     ('LLM_EXPLANATION_MAX_TOKENS', '350'::JSONB,
-     'Ngân sách token đầu ra tối đa cho một diễn giải phiên thi.', TRUE),
+     'Maximum output-token budget for one exam explanation.', TRUE),
     ('LLM_MAX_SOURCE_CHARS', '6000'::JSONB,
-     'Số ký tự nguồn tối đa gửi trong một yêu cầu LLM.', TRUE),
+     'Maximum authorized source characters sent in one LLM request.', TRUE),
     ('LLM_TEMPERATURE', '0.2'::JSONB,
-     'Độ ngẫu nhiên cho tác vụ sinh bản nháp.', TRUE);
+     'Temperature used for LLM draft generation.', TRUE);
 
--- Khái niệm C(0)-C(3) dùng cho đồ án.
+-- Rela-model concepts C(0)-C(3).
 INSERT INTO kb_definitions (
     definition_code, definition_name, definition_type, concept_level,
     attributes_schema, description, source
 )
 VALUES
-    ('NUMBER', 'Số', 'concept', 0, '{}'::JSONB,
-     'Khái niệm cơ sở dùng cho theta, a, b, c, trọng số và thời gian.', 'course_theory'),
-    ('TEXT', 'Chuỗi ký tự', 'concept', 0, '{}'::JSONB,
-     'Khái niệm cơ sở dùng cho mã và nội dung.', 'course_theory'),
-    ('BOOLEAN', 'Luận lý', 'concept', 0, '{}'::JSONB,
-     'Khái niệm cơ sở đúng/sai.', 'course_theory'),
-    ('SUBJECT', 'Môn học', 'concept', 1,
+    ('NUMBER', 'Number', 'concept', 0, '{}'::JSONB,
+     'Primitive concept for theta, IRT parameters, weights, and time.', 'course_theory'),
+    ('TEXT', 'Text', 'concept', 0, '{}'::JSONB,
+     'Primitive concept for identifiers and content.', 'course_theory'),
+    ('BOOLEAN', 'Boolean', 'concept', 0, '{}'::JSONB,
+     'Primitive true-or-false concept.', 'course_theory'),
+    ('SUBJECT', 'Subject', 'concept', 1,
      '{"attrs":["subject_code","subject_name"]}'::JSONB,
-     'Lớp đối tượng đơn giản biểu diễn môn học.', 'project_model'),
-    ('KNOWLEDGE_UNIT', 'Đơn vị tri thức', 'concept', 1,
+     'Simple object class representing a subject.', 'project_model'),
+    ('KNOWLEDGE_UNIT', 'Knowledge unit', 'concept', 1,
      '{"attrs":["unit_code","unit_name","unit_type"]}'::JSONB,
-     'Chủ đề hoặc kỹ năng thuộc một môn.', 'project_model'),
-    ('BLOOM_LEVEL', 'Mức Bloom', 'concept', 1,
+     'A topic or skill that belongs to a subject.', 'project_model'),
+    ('BLOOM_LEVEL', 'Bloom level', 'concept', 1,
      '{"values":["remember","understand","apply","analyze","evaluate"]}'::JSONB,
-     'Năm mức nhận thức được dùng trong đồ án.', 'project_model'),
-    ('STUDENT', 'Sinh viên', 'concept', 1,
+     'The five cognitive levels supported by this project.', 'project_model'),
+    ('STUDENT', 'Student', 'concept', 1,
      '{"attrs":["student_code","display_name"]}'::JSONB,
-     'Người thực hiện bài thi.', 'project_model'),
-    ('QUESTION', 'Câu hỏi', 'concept', 2,
+     'A person who takes an exam.', 'project_model'),
+    ('QUESTION', 'Question', 'concept', 2,
      '{"attrs":["stem","bloom_level","irt_a","irt_b","irt_c"]}'::JSONB,
-     'Đối tượng nâng cao chứa thuộc tính và liên kết đến đơn vị tri thức.', 'project_model'),
-    ('ANSWER_OPTION', 'Phương án trả lời', 'concept', 2,
+     'Advanced object containing item properties and knowledge-unit links.', 'project_model'),
+    ('ANSWER_OPTION', 'Answer option', 'concept', 2,
      '{"attrs":["option_text","score_weight","is_best_answer"]}'::JSONB,
-     'Phương án thuộc pool đáp án của câu hỏi.', 'project_model'),
-    ('ABILITY_STATE', 'Trạng thái năng lực', 'concept', 2,
+     'An option in a question answer pool.', 'project_model'),
+    ('ABILITY_STATE', 'Ability state', 'concept', 2,
      '{"attrs":["theta","standard_error","evidence_count"]}'::JSONB,
-     'Năng lực sinh viên do IRT 3PL ước lượng.', 'project_model'),
-    ('EXAM_SESSION', 'Phiên thi', 'concept', 3,
+     'Student ability estimated using IRT 3PL.', 'project_model'),
+    ('EXAM_SESSION', 'Exam session', 'concept', 3,
      '{"attrs":["mode","generation_config","theta_current","status"]}'::JSONB,
-     'Đối tượng cao cấp kết hợp sinh viên, câu hỏi, phản hồi và năng lực.', 'project_model');
+     'Composite object linking a student, questions, responses, and ability.', 'project_model');
 
--- Quan hệ R của miền tri thức.
+-- Relations R in the knowledge domain.
 INSERT INTO kb_definitions (
     definition_code, definition_name, definition_type,
     source_definition_id, target_definition_id,
@@ -837,60 +858,60 @@ INSERT INTO kb_definitions (
     description, source
 )
 VALUES
-    ('is_a', 'thuộc kiểu', 'relation', NULL, NULL,
+    ('is_a', 'is a', 'relation', NULL, NULL,
      FALSE, FALSE, FALSE, FALSE,
-     'Quan hệ dùng cho sự kiện loại 1: x:c.', 'course_theory'),
-    ('belongs_to', 'thuộc về', 'relation',
+     'Relation used by type-1 facts: x:c.', 'course_theory'),
+    ('belongs_to', 'belongs to', 'relation',
      (SELECT definition_id FROM kb_definitions WHERE definition_code = 'KNOWLEDGE_UNIT'),
      (SELECT definition_id FROM kb_definitions WHERE definition_code = 'SUBJECT'),
      FALSE, FALSE, FALSE, TRUE,
-     'Đơn vị tri thức thuộc một môn học.', 'project_model'),
-    ('measures', 'đo lường', 'relation',
+     'A knowledge unit belongs to a subject.', 'project_model'),
+    ('measures', 'measures', 'relation',
      (SELECT definition_id FROM kb_definitions WHERE definition_code = 'QUESTION'),
      (SELECT definition_id FROM kb_definitions WHERE definition_code = 'KNOWLEDGE_UNIT'),
      FALSE, FALSE, FALSE, FALSE,
-     'Câu hỏi đo một chủ đề hoặc kỹ năng.', 'project_model'),
-    ('prerequisite_of', 'là tiên quyết của', 'relation',
+     'A question measures a topic or skill.', 'project_model'),
+    ('prerequisite_of', 'prerequisite of', 'relation',
      (SELECT definition_id FROM kb_definitions WHERE definition_code = 'KNOWLEDGE_UNIT'),
      (SELECT definition_id FROM kb_definitions WHERE definition_code = 'KNOWLEDGE_UNIT'),
      FALSE, TRUE, FALSE, TRUE,
-     'Quan hệ tiên quyết giữa các đơn vị tri thức.', 'project_model'),
-    ('has_bloom_level', 'có mức Bloom', 'relation',
+     'Prerequisite relation between knowledge units.', 'project_model'),
+    ('has_bloom_level', 'has Bloom level', 'relation',
      (SELECT definition_id FROM kb_definitions WHERE definition_code = 'QUESTION'),
      (SELECT definition_id FROM kb_definitions WHERE definition_code = 'BLOOM_LEVEL'),
      FALSE, FALSE, FALSE, FALSE,
-     'Phân loại mức nhận thức của câu hỏi.', 'project_model'),
-    ('selected_option', 'chọn phương án', 'relation',
+     'Cognitive classification of a question.', 'project_model'),
+    ('selected_option', 'selected option', 'relation',
      (SELECT definition_id FROM kb_definitions WHERE definition_code = 'STUDENT'),
      (SELECT definition_id FROM kb_definitions WHERE definition_code = 'ANSWER_OPTION'),
      FALSE, FALSE, FALSE, FALSE,
-     'Sự kiện sinh viên chọn một phương án.', 'project_model');
+     'Fact recording that a student selected an option.', 'project_model');
 
 INSERT INTO kb_definitions (
     definition_code, definition_name, definition_type,
     is_symmetric, is_transitive, description, source
 )
 VALUES
-    ('unit_accuracy', 'độ chính xác đơn vị tri thức', 'relation', FALSE, FALSE, 'Bằng chứng chính xác theo sinh viên và đơn vị.', 'project_model'),
-    ('recommended_next', 'khuyến nghị tiếp theo', 'relation', FALSE, FALSE, 'Hành động học tập được suy ra.', 'project_model'),
-    ('weak_unit', 'đơn vị tri thức yếu', 'relation', FALSE, FALSE, 'Đơn vị cần ưu tiên đánh giá hoặc ôn tập.', 'project_model'),
-    ('has_mastery', 'có mức làm chủ', 'relation', FALSE, FALSE, 'Trạng thái làm chủ theo đơn vị tri thức.', 'project_model'),
-    ('question_ready', 'câu hỏi sẵn sàng', 'relation', FALSE, FALSE, 'Câu hỏi vượt qua kiểm tra xác định.', 'project_model'),
-    ('best_option', 'phương án tốt nhất', 'relation', FALSE, FALSE, 'Đáp án tốt nhất của câu hỏi.', 'project_model'),
-    ('displayed_options_include', 'phương án hiển thị chứa', 'relation', FALSE, FALSE, 'Ràng buộc hiển thị đáp án.', 'project_model'),
-    ('option_weight', 'trọng số phương án', 'relation', FALSE, FALSE, 'Trọng số chấm điểm của phương án.', 'project_model'),
-    ('awarded_score', 'điểm được trao', 'relation', FALSE, FALSE, 'Điểm suy ra từ phương án.', 'project_model'),
-    ('has_binary_response', 'có phản hồi nhị phân', 'relation', FALSE, FALSE, 'Phản hồi dùng cho IRT.', 'project_model'),
-    ('has_irt_parameters', 'có tham số IRT', 'relation', FALSE, FALSE, 'Bộ tham số a b c.', 'project_model'),
-    ('updated_theta', 'theta đã cập nhật', 'relation', FALSE, FALSE, 'Năng lực mới sau phản hồi.', 'project_model'),
-    ('computed_theta', 'theta do IRT tính', 'relation', FALSE, FALSE, 'Giá trị theta do module IRT cung cấp cho bộ suy diễn.', 'project_model'),
-    ('valid_question_pool', 'ngân hàng hợp lệ', 'relation', FALSE, FALSE, 'Ngân hàng đủ điều kiện chọn.', 'project_model'),
-    ('student_theta', 'theta sinh viên', 'relation', FALSE, FALSE, 'Theta đầu vào của lựa chọn.', 'project_model'),
-    ('difficulty_blueprint', 'blueprint độ khó', 'relation', FALSE, FALSE, 'Phân bố độ khó yêu cầu.', 'project_model'),
-    ('exam_generated_with_constraints', 'đề thỏa ràng buộc', 'relation', FALSE, FALSE, 'Mục tiêu sinh đề cố định.', 'project_model'),
-    ('subject_has_no_evidence', 'môn chưa có bằng chứng', 'relation', FALSE, FALSE, 'Môn chưa có lịch sử trả lời.', 'project_model');
+    ('unit_accuracy', 'knowledge-unit accuracy', 'relation', FALSE, FALSE, 'Accuracy evidence for a student and knowledge unit.', 'project_model'),
+    ('recommended_next', 'recommended next action', 'relation', FALSE, FALSE, 'An inferred learning action.', 'project_model'),
+    ('weak_unit', 'weak knowledge unit', 'relation', FALSE, FALSE, 'A unit that should be prioritized for assessment or review.', 'project_model'),
+    ('has_mastery', 'has mastery', 'relation', FALSE, FALSE, 'Knowledge-unit mastery state.', 'project_model'),
+    ('question_ready', 'question is ready', 'relation', FALSE, FALSE, 'A question that passed deterministic validation.', 'project_model'),
+    ('best_option', 'best option', 'relation', FALSE, FALSE, 'The best answer to a question.', 'project_model'),
+    ('displayed_options_include', 'displayed options include', 'relation', FALSE, FALSE, 'Answer-option presentation constraint.', 'project_model'),
+    ('option_weight', 'option weight', 'relation', FALSE, FALSE, 'Scoring weight assigned to an option.', 'project_model'),
+    ('awarded_score', 'awarded score', 'relation', FALSE, FALSE, 'Score inferred from the selected option.', 'project_model'),
+    ('has_binary_response', 'has binary response', 'relation', FALSE, FALSE, 'Response evidence used by IRT.', 'project_model'),
+    ('has_irt_parameters', 'has IRT parameters', 'relation', FALSE, FALSE, 'IRT parameter tuple a, b, and c.', 'project_model'),
+    ('updated_theta', 'updated theta', 'relation', FALSE, FALSE, 'Ability estimate after processing a response.', 'project_model'),
+    ('computed_theta', 'computed theta', 'relation', FALSE, FALSE, 'Theta supplied by the IRT module to the inference engine.', 'project_model'),
+    ('valid_question_pool', 'valid question pool', 'relation', FALSE, FALSE, 'Question bank eligible for selection.', 'project_model'),
+    ('student_theta', 'student theta', 'relation', FALSE, FALSE, 'Ability estimate used as selection input.', 'project_model'),
+    ('difficulty_blueprint', 'difficulty blueprint', 'relation', FALSE, FALSE, 'Requested difficulty distribution.', 'project_model'),
+    ('exam_generated_with_constraints', 'exam satisfies constraints', 'relation', FALSE, FALSE, 'Goal of fixed-exam generation.', 'project_model'),
+    ('subject_has_no_evidence', 'subject has no evidence', 'relation', FALSE, FALSE, 'A subject with no response history.', 'project_model');
 
--- Các luật mẫu tối thiểu để cơ sở tri thức không chỉ là cấu trúc rỗng.
+-- Executable rules prevent the knowledge base from being a structural shell.
 INSERT INTO kb_rules (
     rule_code, rule_name, rule_type, hypothesis, goal,
     priority, weight, explanation_template, source
@@ -898,94 +919,95 @@ INSERT INTO kb_rules (
 VALUES
     (
         'R_GEN_INCLUDE_BEST',
-        'Sinh tập phương án hợp lệ',
+        'Generate a valid option set',
         'generation',
         '[{"predicate":"question_ready","args":["?q"]},{"predicate":"best_option","args":["?q","?best"]}]'::JSONB,
         '[{"predicate":"displayed_options_include","args":["?q","?best"]}]'::JSONB,
         10, 1,
-        'Tập phương án của câu {q} phải chứa đáp án tốt nhất {best}.',
+        'The displayed option set for {q} must include the best answer {best}.',
         'project_rule'
     ),
     (
         'R_SCORE_SELECTED_OPTION',
-        'Chấm phương án đã chọn',
+        'Score the selected option',
         'scoring',
         '[{"predicate":"selected_option","args":["?student","?q","?option"]},{"predicate":"option_weight","args":["?option","?w"]}]'::JSONB,
         '[{"predicate":"awarded_score","args":["?student","?q","?w"]}]'::JSONB,
         20, 1,
-        'Sinh viên {student} nhận điểm {w} cho câu {q}.',
+        'Student {student} receives score {w} for question {q}.',
         'project_rule'
     ),
     (
         'R_UPDATE_ABILITY_3PL',
-        'Cập nhật năng lực bằng IRT 3PL',
+        'Update ability using IRT 3PL',
         'ability_update',
         '[{"predicate":"has_binary_response","args":["?student","?q","?u"]},{"predicate":"has_irt_parameters","args":["?q","?a","?b","?c"]},{"predicate":"computed_theta","args":["?student","?theta_new"]}]'::JSONB,
         '[{"predicate":"updated_theta","args":["?student","?theta_new"]}]'::JSONB,
         30, 1,
-        'Cập nhật theta của {student} từ phản hồi nhị phân {u} bằng IRT 3PL.',
+        'Update {student} theta from binary response {u} using IRT 3PL.',
         'project_rule'
     ),
     (
         'R_GEN_IRT_BALANCED',
-        'Sinh đề cân bằng bằng IRT',
+        'Generate an IRT-balanced exam',
         'generation',
         '[{"predicate":"valid_question_pool","args":["?subject"]},{"predicate":"student_theta","args":["?student","?theta"]},{"predicate":"difficulty_blueprint","args":["?distribution"]}]'::JSONB,
         '[{"predicate":"exam_generated_with_constraints","args":["?student","?subject"]}]'::JSONB,
         15, 1,
-        'Chọn câu theo tỷ lệ độ khó, cân bằng chủ đề và Fisher information tại theta hiện tại.',
+        'Select questions by difficulty profile, content balance, and Fisher information at the current theta.',
         'project_rule'
     ),
     (
         'R_LEARNING_START_SUBJECT',
-        'Bắt đầu đánh giá môn học',
+        'Start subject assessment',
         'recommendation',
         '[{"predicate":"subject_has_no_evidence","args":["?student","?subject"]}]'::JSONB,
         '[{"predicate":"recommended_next","args":["?student","?subject","initial_assessment"]}]'::JSONB,
         10, 1,
-        'Sinh viên chưa có bằng chứng ở môn {subject}, cần hoàn thành bài đánh giá đầu tiên.',
+        'The student has no evidence in {subject} and should complete an initial assessment.',
         'project_rule'
     ),
     (
         'R_LEARNING_REMEDIATE',
-        'Ôn lại đơn vị tri thức yếu',
+        'Remediate a weak knowledge unit',
         'recommendation',
         '[{"predicate":"unit_accuracy","args":["?student","?unit","?accuracy"]},{"operator":"lt","left":"?accuracy","right":0.5}]'::JSONB,
         '[{"predicate":"weak_unit","args":["?student","?unit"]},{"predicate":"recommended_next","args":["?student","?unit","remediate"]}]'::JSONB,
         20, 1,
-        'Độ chính xác ở {unit} dưới 50%, ưu tiên ôn kiến thức nền.',
+        'Accuracy in {unit} is below 50%; prioritize foundational review.',
         'project_rule'
     ),
     (
         'R_LEARNING_REINFORCE',
-        'Củng cố đơn vị tri thức',
+        'Reinforce a knowledge unit',
         'recommendation',
         '[{"predicate":"unit_accuracy","args":["?student","?unit","?accuracy"]},{"operator":"gte","left":"?accuracy","right":0.5},{"operator":"lt","left":"?accuracy","right":0.75}]'::JSONB,
         '[{"predicate":"recommended_next","args":["?student","?unit","reinforce"]}]'::JSONB,
         30, 1,
-        'Độ chính xác ở {unit} từ 50% đến dưới 75%, cần luyện tập củng cố.',
+        'Accuracy in {unit} is between 50% and 75%; continue reinforcement practice.',
         'project_rule'
     ),
     (
         'R_LEARNING_ADVANCE',
-        'Nâng cao đơn vị tri thức đã nắm',
+        'Advance a mastered knowledge unit',
         'recommendation',
         '[{"predicate":"unit_accuracy","args":["?student","?unit","?accuracy"]},{"operator":"gte","left":"?accuracy","right":0.75}]'::JSONB,
         '[{"predicate":"has_mastery","args":["?student","?unit",true]},{"predicate":"recommended_next","args":["?student","?unit","advance"]}]'::JSONB,
         40, 1,
-        'Độ chính xác ở {unit} đạt ít nhất 75%, có thể chuyển sang vận dụng cao hơn.',
+        'Accuracy in {unit} is at least 75%; advance to higher-order application.',
         'project_rule'
     );
 
 COMMIT;
 
--- Kiểm tra số bảng sau khi chạy DDL (kỳ vọng: 15):
+-- Verify the table count after running this DDL (expected: 17):
 -- SELECT COUNT(*)
 -- FROM information_schema.tables
 -- WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
 --   AND table_name IN (
 --     'subjects', 'knowledge_units', 'questions', 'answer_options',
---     'question_knowledge_units', 'students', 'student_abilities',
+--     'question_knowledge_units', 'students', 'app_users', 'student_abilities',
 --     'exam_sessions', 'exam_items', 'kb_definitions', 'kb_rules',
---     'inference_traces', 'kb_facts', 'sys_props', 'llm_artifacts'
+--     'inference_traces', 'kb_facts', 'sys_props', 'llm_artifacts',
+--     'irt_calibration_runs'
 --   );

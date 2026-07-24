@@ -21,34 +21,34 @@ def render(client: ExamAPIClient) -> None:
         unsafe_allow_html=True,
     )
     st.caption(
-        f"Bài thi thích ứng · đã trả lời {progress['answered']} · "
-        f"tối đa {progress['maximum']} câu"
+        f"Adaptive test · {progress['answered']} answered · "
+        f"up to {progress['maximum']} questions"
     )
     st.progress(min(1.0, progress["answered"] / max(1, progress["maximum"])))
     render_countdown(st.session_state.cat_started_at, payload["estimated_minutes"])
     st.markdown(
-        f"<div class='question-card'><span class='badge'>Câu {question['order_no']}</span>"
+        f"<div class='question-card'><span class='badge'>Question {question['order_no']}</span>"
         f"<p><strong>{question['stem']}</strong></p></div>",
         unsafe_allow_html=True,
     )
     labels = {item["option_code"]: item["option_text"] for item in question["options"]}
     with st.form(f"cat_{question['exam_item_id']}"):
         selected = st.radio(
-            "Chọn đáp án",
+            "Select an answer",
             options=list(labels),
             format_func=lambda code: labels[code],
             index=None,
             label_visibility="collapsed",
         )
-        submitted = st.form_submit_button("Trả lời", type="primary", width="stretch")
+        submitted = st.form_submit_button("Submit answer", type="primary", width="stretch")
     if not submitted:
         return
     if selected is None:
-        st.error("Hãy chọn một đáp án.")
+        st.error("Select an answer before continuing.")
         return
     elapsed = max(1, int(time.time() - st.session_state.cat_question_started_at))
     try:
-        with st.spinner("Đang cập nhật và chọn câu tiếp theo..."):
+        with st.spinner("Updating your estimate and selecting the next question..."):
             response = client.answer_cat(
                 payload["session_id"],
                 question["exam_item_id"],

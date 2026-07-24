@@ -2,13 +2,14 @@ import streamlit as st
 
 from frontend.api_client import APIClientError, ExamAPIClient
 from frontend.components.header import render_header
+from frontend.components.interactive_graph import render_interactive_graph
 from frontend.state import go
 
 
 def render(client: ExamAPIClient) -> None:
     render_header()
-    st.markdown("<div class='section-title'>Tiến độ học tập của bạn</div>", unsafe_allow_html=True)
-    st.caption("Kết quả được cập nhật sau mỗi bài thi đã hoàn thành.")
+    st.markdown("<div class='section-title'>Your learning progress</div>", unsafe_allow_html=True)
+    st.caption("Progress is updated after every completed test.")
     try:
         payload = client.taker_dashboard()
     except APIClientError as error:
@@ -17,26 +18,26 @@ def render(client: ExamAPIClient) -> None:
 
     summary = payload["summary"]
     columns = st.columns(4)
-    columns[0].metric("Bài đã hoàn thành", summary["completed_tests"])
-    columns[1].metric("Tất cả phiên thi", summary["total_tests"])
-    columns[2].metric("Điểm trung bình", f"{summary['average_score_percent']:.1f}%")
-    columns[3].metric("Điểm cao nhất", f"{summary['best_score_percent']:.1f}%")
+    columns[0].metric("Completed tests", summary["completed_tests"])
+    columns[1].metric("All sessions", summary["total_tests"])
+    columns[2].metric("Average score", f"{summary['average_score_percent']:.1f}%")
+    columns[3].metric("Best score", f"{summary['best_score_percent']:.1f}%")
 
-    st.subheader("Tiến độ theo môn")
+    st.subheader("Progress by subject")
     progress = payload["subject_progress"]
     st.dataframe(
         [
             {
-                "Môn học": item["subject_name"],
-                "Số bài": item["completed_tests"],
-                "Điểm gần nhất": (
+                "Subject": item["subject_name"],
+                "Tests": item["completed_tests"],
+                "Latest score": (
                     f"{item['latest_score_percent']:.1f}%"
                     if item["latest_score_percent"] is not None
-                    else "Chưa có"
+                    else "Not assessed"
                 ),
-                "Điểm trung bình": f"{item['average_score_percent']:.1f}%",
-                "Điểm cao nhất": f"{item['best_score_percent']:.1f}%",
-                "Mức độ hiểu": item["understanding_label"],
+                "Average score": f"{item['average_score_percent']:.1f}%",
+                "Best score": f"{item['best_score_percent']:.1f}%",
+                "Understanding": item["understanding_label"],
             }
             for item in progress
         ],
@@ -44,16 +45,44 @@ def render(client: ExamAPIClient) -> None:
         hide_index=True,
     )
 
-    st.subheader("Lộ trình học tập đề xuất")
+    st.subheader("Recommended learning path")
     learning_path = payload["learning_path"]
     if not learning_path:
-        st.info("Hoàn thành một bài thi để hệ thống xây dựng lộ trình học tập.")
+        st.info("Complete a test to build your evidence-based learning path.")
+    else:
+        path_nodes = [
+            {
+                "id": f"path:{step['priority']}",
+                "label": f"{step['priority']}. {step['unit_name']}",
+                "type": "path",
+                "attributes": {
+                    "subject": step["subject_name"],
+                    "action": step["action"],
+                    "accuracy_percent": step["accuracy_percent"],
+                    "evidence_count": step["evidence_count"],
+                },
+            }
+            for step in learning_path
+        ]
+        path_edges = [
+            {
+                "source": path_nodes[index]["id"],
+                "target": path_nodes[index + 1]["id"],
+                "relation": "recommended next",
+                "provenance": {"source": "Rela-model learning rules"},
+            }
+            for index in range(len(path_nodes) - 1)
+        ]
+        st.caption(
+            "Double-click a learning step to expand or collapse the next recommendation."
+        )
+        render_interactive_graph(path_nodes, path_edges, key="taker_learning_path", height=380)
     for step in learning_path:
         evidence = (
-            f"Độ chính xác {step['accuracy_percent']:.1f}% · "
-            f"{step['evidence_count']} câu"
+            f"Accuracy {step['accuracy_percent']:.1f}% · "
+            f"{step['evidence_count']} questions"
             if step["accuracy_percent"] is not None
-            else "Chưa có dữ liệu làm bài"
+            else "No response evidence yet"
         )
         st.markdown(
             f"""
@@ -66,16 +95,16 @@ def render(client: ExamAPIClient) -> None:
             unsafe_allow_html=True,
         )
 
-    st.subheader("Lịch sử gần đây")
+    st.subheader("Recent history")
     history = payload["recent_tests"]
     if history:
         st.dataframe(
             [
                 {
-                    "Môn học": item["subject_name"],
-                    "Điểm": f"{item['score_percent']:.1f}%",
-                    "Mức độ hiểu": item["understanding_label"],
-                    "Hoàn thành": item["finished_at"],
+                    "Subject": item["subject_name"],
+                    "Score": f"{item['score_percent']:.1f}%",
+                    "Understanding": item["understanding_label"],
+                    "Completed": item["finished_at"],
                 }
                 for item in history
             ],
@@ -83,7 +112,7 @@ def render(client: ExamAPIClient) -> None:
             hide_index=True,
         )
     else:
-        st.info("Bạn chưa hoàn thành bài thi nào.")
+        st.info("You have not completed a test yet.")
 
-    if st.button("Bắt đầu bài thi mới", type="primary", width="stretch"):
+    if st.button("Start a new test", type="primary", width="stretch"):
         go("subjects")

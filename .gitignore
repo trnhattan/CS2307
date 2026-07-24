@@ -240,6 +240,8 @@ scripts/
 scripts/*
 !scripts/adaptive_exam_schema_optimized.sql
 !scripts/migrate_mandatory_non_llm.sql
+!scripts/migrate_calibration_and_english.sql
+!scripts/seed_english_question_bank.py
 !scripts/evaluate_cat.py
 !scripts/start_backend.py
 !scripts/start_frontend.py

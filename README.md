@@ -12,7 +12,7 @@ docker compose --env-file .env -f docker/docker-compose.yaml up -d
 
 FastAPI and Streamlit intentionally run in the local Conda environment while the application is under development. The repository does not build application containers yet.
 
-A clean database starts with schema, rules, configuration, and the four demo accounts, but no fabricated question content. Import only team-supplied JSONL bundles as an administrator; every imported record remains `draft` until explicit review and activation. The existing local PostgreSQL database remains the source of truth for the current 55-question bank.
+A clean database starts with schema, rules, configuration, and the four demo accounts. The reproducible operational seed creates 200 complete English MCQs: 100 Database Systems and 100 Computer Networks. Every item includes a topic, primary skill, Bloom level, difficulty, answer pool, explanation, average time, initial IRT parameters, and provenance. The seed inserts items as `draft`, runs the same deterministic administrator review used by the API, and activates only items that pass. Legacy questions are retired rather than deleted when `--retire-legacy` is used.
 
 Copy the environment template once, then fill in local credentials:
 
@@ -35,6 +35,10 @@ docker compose --env-file .env -f docker/docker-compose.yaml exec -T postgres \
   psql -U postgres -d app < scripts/adaptive_exam_schema_optimized.sql
 docker compose --env-file .env -f docker/docker-compose.yaml exec -T postgres \
   psql -U postgres -d app < scripts/migrate_mandatory_non_llm.sql
+docker compose --env-file .env -f docker/docker-compose.yaml exec -T postgres \
+  psql -U postgres -d app < scripts/migrate_calibration_and_english.sql
+
+python -m scripts.seed_english_question_bank --activate --retire-legacy
 
 python -m scripts.start_backend
 ```
@@ -56,8 +60,8 @@ CloudBeaver must connect to host `postgres`, port `5432`, database `app`, user `
 
 ## Exam workflow
 
-1. The landing page displays the project title, five member placeholders, and login/signup actions. Signup remains a placeholder.
-2. Login routes exam takers to their personal progress dashboard and staff to role-specific workspaces. Fixed exams support multiple subjects; CAT uses one subject per session.
+1. The English landing page displays the project title, five member placeholders, and sign-in/sign-up actions. Sign-up remains a placeholder.
+2. Login routes exam takers to their personal progress dashboard and staff to role-specific workspaces. The fixed-exam page combines subject, question-count, and difficulty-profile controls; CAT uses one subject per session.
 3. The backend reads fixed and CAT blueprints from `sys_props`. CAT selects active, validated, unanswered questions using information, weak-unit evidence, content balance, and exposure control.
 4. Each response uses IRT 3PL EAP to refresh subject and topic/skill ability from response history and stores inference traces.
 5. The countdown starts from the configured estimated duration. Reaching zero changes it to overtime but never blocks or submits the exam.
@@ -66,11 +70,15 @@ The taker interface and its API responses only expose questions, remaining estim
 
 Role-specific navigation:
 
-- Exam taker: personal progress, score history, learning path, new exam, and active exam.
-- Supervisor: taker overview, generated sessions, CAT trajectory, IRT metrics, adaptive defaults, Knowledge Graph, one-question LLM drafts, and technical result explanations.
-- Administrator: system overview, question readiness/review/activation, central configuration, Knowledge Graph, account administration, and the LLM draft queue.
+- Exam taker: personal progress, score history, interactive learning path, new exam, and active exam.
+- Supervisor: taker overview, generated sessions, CAT trajectory, IRT metrics, empirical calibration, adaptive defaults, interactive Knowledge Graph, one-question LLM drafts, and technical result explanations.
+- Administrator: system overview, question readiness/review/activation, empirical calibration, central configuration, interactive Knowledge Graph, account administration, and the LLM draft queue.
 
 Learning-path steps are derived from answered topic/skill evidence. Rule codes and trace identifiers stay in staff diagnostics; the taker API and UI expose only the learning action and understandable progress evidence.
+
+The visible interface is English across every role. The only intentional Vietnamese output is the on-demand LLM learning explanation required by the XAI workflow; its buttons, status, evidence headings, and surrounding page remain English.
+
+Knowledge and learning graphs use NetworkX for graph structure and a PyVis/vis-network canvas for interaction. The ability graph initially shows only the exam taker and subjects. Double-clicking a node, or using **Expand selected**, reveals the next semantic level; **Collapse branch** hides it again. Search, node-type filters, relationship filters, drag, zoom, layout pause/resume, reset, and show-all controls are available. Visible labels and relationships are plain English rather than database identifiers. Long text is wrapped to three lines on the node and preserved in full in its hover tooltip.
 
 ## Seeded accounts
 
@@ -104,6 +112,8 @@ GET  /api/v1/taker/dashboard
 GET  /api/v1/supervisor/dashboard
 GET  /api/v1/supervisor/config/difficulty-distribution
 PUT  /api/v1/supervisor/config/difficulty-distribution
+GET  /api/v1/calibration/latest
+POST /api/v1/calibration/run
 GET  /api/v1/admin/dashboard
 GET  /api/v1/admin/overview
 GET  /api/v1/admin/questions
@@ -149,7 +159,11 @@ curl -X POST \
 
 Successful lines report `created` or `updated`; invalid lines report their JSON path and error. Re-uploading the same bundle updates its aggregate without duplicating the question or source facts.
 
-Every imported question is kept in `draft` until an administrator reviews and activates it. LLM generation is a separate, explicit staff action that creates exactly one new `draft` per call. It never pads the bank automatically, never activates its output, and cannot bypass deterministic validation or admin review. The readiness endpoint reports the exact database count and remaining gap.
+Every imported question is kept in `draft` until an administrator reviews and activates it. LLM generation is a separate, explicit staff action that creates exactly one persisted English `draft` per call. It never pads the bank automatically, never activates its output, and cannot bypass deterministic validation or admin review. The administrator can complete review and activation on the same LLM workspace page. Question generation uses [question_generation_system_en.txt](backend/prompts/templates/question_generation_system_en.txt).
+
+The result pages can request persisted XAI feedback. Deterministic score, unit evidence, ability change, and rule-trace context are passed to the provider; the provider is not allowed to recalculate them. Taker and staff outputs are required to be concise Vietnamese by [exam_explanation_system_vi.txt](backend/prompts/templates/exam_explanation_system_vi.txt), then cached by session and audience. The server, rather than the LLM, constructs the displayed evidence list. Contradictory fractions or percentages in generated prose are rejected and replaced before the versioned response is persisted.
+
+The empirical calibration page uses only completed real response events. It reports observed accuracy, predicted accuracy, point-biserial discrimination, response time, binned fit RMSE, and a conditional difficulty estimate. Items below the thresholds stored in `sys_props` are explicitly marked `insufficient` or `provisional`; production IRT parameters are changed only when the apply threshold is met.
 
 ## Tests
 

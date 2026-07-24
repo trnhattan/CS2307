@@ -6,8 +6,8 @@ from frontend.components.header import render_header
 
 def render(client: ExamAPIClient) -> None:
     render_header()
-    st.markdown("<div class='section-title'>Ngân hàng câu hỏi</div>", unsafe_allow_html=True)
-    st.caption("Xem mức sẵn sàng, kiểm tra xác định và kích hoạt câu hỏi hiện có.")
+    st.markdown("<div class='section-title'>Question bank</div>", unsafe_allow_html=True)
+    st.caption("Inspect readiness, run deterministic review, and govern item activation.")
     try:
         payload = client.admin_questions()
         readiness = client.question_readiness()
@@ -16,17 +16,17 @@ def render(client: ExamAPIClient) -> None:
         return
 
     metrics = st.columns(4)
-    metrics[0].metric("Tổng số câu hỏi", readiness["total_questions"])
-    metrics[1].metric("Đang hoạt động", readiness["active_questions"])
-    metrics[2].metric("Chưa hợp lệ", readiness["invalid_questions"])
-    metrics[3].metric("Thiếu nội dung so với yêu cầu", readiness["target_gap"])
+    metrics[0].metric("Total questions", readiness["total_questions"])
+    metrics[1].metric("Active", readiness["active_questions"])
+    metrics[2].metric("Invalid", readiness["invalid_questions"])
+    metrics[3].metric("Target gap", readiness["target_gap"])
     for limitation in readiness["limitations"]:
         st.warning(limitation)
     confirm_bulk = st.checkbox(
-        "Tôi xác nhận chạy validation và kích hoạt mọi câu hiện có vượt qua kiểm tra"
+        "I confirm deterministic review and activation of every item that passes validation"
     )
     if st.button(
-        "Review và kích hoạt ngân hàng hiện có",
+        "Review and activate eligible items",
         disabled=not confirm_bulk,
         width="stretch",
     ):
@@ -34,22 +34,22 @@ def render(client: ExamAPIClient) -> None:
             response = client.bulk_activate_questions(
                 [item["question_code"] for item in payload["questions"]]
             )
-            st.success(f"Đã kích hoạt {len(response['activated'])} câu hợp lệ.")
+            st.success(f"Activated {len(response['activated'])} valid questions.")
             if response["rejected"]:
-                st.warning(f"Có {len(response['rejected'])} câu bị từ chối.")
+                st.warning(f"Rejected {len(response['rejected'])} questions.")
             st.rerun()
         except APIClientError as error:
             st.error(str(error))
     st.dataframe(
         [
             {
-                "Môn": item["subject_code"],
-                "Tổng": item["total_questions"],
+                "Subject": item["subject_code"],
+                "Total": item["total_questions"],
                 "Active": item["active_questions"],
-                "Chủ đề": item["topic_count"],
+                "Topics": item["topic_count"],
                 "Bloom": item["bloom_coverage"],
-                "Độ khó": item["difficulty_coverage"],
-                "CAT khả dụng": "Có" if item["cat_feasible"] else "Chưa",
+                "Difficulty bands": item["difficulty_coverage"],
+                "CAT feasible": "Yes" if item["cat_feasible"] else "Not yet",
             }
             for item in readiness["subjects"]
         ],
@@ -58,36 +58,36 @@ def render(client: ExamAPIClient) -> None:
     )
     for subject in payload["subjects"]:
         with st.expander(
-            f"{subject['subject_name']} · {subject['total_questions']} câu",
+            f"{subject['subject_name']} · {subject['total_questions']} questions",
             expanded=True,
         ):
             charts = st.columns(3)
-            charts[0].caption("Độ khó")
+            charts[0].caption("Difficulty")
             charts[0].bar_chart(
                 _chart_rows(subject["difficulty_distribution"]),
-                x="Mức",
-                y="Số câu",
+                x="Level",
+                y="Questions",
             )
             charts[1].caption("Bloom")
             charts[1].bar_chart(
                 _chart_rows(subject["bloom_distribution"]),
-                x="Mức",
-                y="Số câu",
+                x="Level",
+                y="Questions",
             )
-            charts[2].caption("Trạng thái")
+            charts[2].caption("Status")
             charts[2].bar_chart(
                 _chart_rows(subject["status_distribution"]),
-                x="Mức",
-                y="Số câu",
+                x="Level",
+                y="Questions",
             )
 
     questions = payload["questions"]
     subject_options = sorted({item["subject_name"] for item in questions})
     difficulty_options = sorted({item["difficulty_label"] for item in questions})
     filters = st.columns(3)
-    selected_subjects = filters[0].multiselect("Lọc môn học", subject_options)
-    selected_difficulties = filters[1].multiselect("Lọc độ khó", difficulty_options)
-    search = filters[2].text_input("Tìm mã hoặc nội dung")
+    selected_subjects = filters[0].multiselect("Filter subjects", subject_options)
+    selected_difficulties = filters[1].multiselect("Filter difficulty", difficulty_options)
+    search = filters[2].text_input("Search code or content")
     visible = [
         item
         for item in questions
@@ -105,27 +105,27 @@ def render(client: ExamAPIClient) -> None:
     st.dataframe(
         [
             {
-                "Mã": item["question_code"],
-                "Môn": item["subject_name"],
-                "Nội dung": item["stem"],
+                "Code": item["question_code"],
+                "Subject": item["subject_name"],
+                "Stem": item["stem"],
                 "Bloom": item["bloom_level"],
-                "Độ khó": item["difficulty_label"],
-                "Trạng thái": item["status"],
+                "Difficulty": item["difficulty_label"],
+                "Status": item["status"],
                 "IRT": item["irt_status"],
-                "Phương án": item["option_count"],
-                "Đơn vị tri thức": ", ".join(item["knowledge_units"]),
+                "Options": item["option_count"],
+                "Knowledge units": ", ".join(item["knowledge_units"]),
             }
             for item in visible
         ],
         width="stretch",
         hide_index=True,
     )
-    st.caption(f"Đang hiển thị {len(visible)} câu.")
+    st.caption(f"Showing {len(visible)} questions.")
     if not visible:
-        st.info("Không có câu hỏi phù hợp bộ lọc.")
+        st.info("No questions match the current filters.")
         return
     selected_code = st.selectbox(
-        "Kiểm tra câu hỏi",
+        "Inspect question",
         options=[item["question_code"] for item in visible],
     )
     try:
@@ -133,7 +133,7 @@ def render(client: ExamAPIClient) -> None:
     except APIClientError as error:
         st.error(str(error))
         return
-    with st.expander("Chi tiết và provenance", expanded=False):
+    with st.expander("Details and provenance", expanded=False):
         st.write(detail["stem"])
         st.json(
             {
@@ -147,9 +147,9 @@ def render(client: ExamAPIClient) -> None:
                 "provenance": detail["provenance"],
             }
         )
-    with st.expander("Chỉnh sửa câu hỏi hiện có", expanded=False):
+    with st.expander("Edit existing question", expanded=False):
         with st.form(f"edit_question_{selected_code}"):
-            stem = st.text_area("Nội dung", value=detail["stem"], height=120)
+            stem = st.text_area("Stem", value=detail["stem"], height=120)
             metadata = st.columns(3)
             bloom_values = ["remember", "understand", "apply", "analyze", "evaluate"]
             bloom = metadata[0].selectbox(
@@ -159,7 +159,7 @@ def render(client: ExamAPIClient) -> None:
             )
             difficulty_values = ["easy", "medium", "hard"]
             difficulty = metadata[1].selectbox(
-                "Độ khó",
+                "Difficulty",
                 difficulty_values,
                 index=difficulty_values.index(detail["difficulty_label"]),
             )
@@ -172,13 +172,13 @@ def render(client: ExamAPIClient) -> None:
             )
             timing = st.columns(2)
             avg_time_sec = timing[0].number_input(
-                "Thời gian ước lượng (giây)",
+                "Estimated time (seconds)",
                 min_value=1,
                 value=int(detail["avg_time_sec"]),
             )
-            source = timing[1].text_input("Nguồn", value=detail["source"] or "")
+            source = timing[1].text_input("Source", value=detail["source"] or "")
             explanation = st.text_area(
-                "Giải thích đáp án",
+                "Answer explanation",
                 value=detail["explanation"] or "",
                 height=100,
             )
@@ -196,7 +196,7 @@ def render(client: ExamAPIClient) -> None:
                 irt_statuses,
                 index=irt_statuses.index(detail["irt_status"]),
             )
-            save = st.form_submit_button("Lưu và đưa về draft", width="stretch")
+            save = st.form_submit_button("Save and return to draft", width="stretch")
         if save:
             try:
                 client.update_admin_question(
@@ -215,22 +215,22 @@ def render(client: ExamAPIClient) -> None:
                         "source": source,
                     },
                 )
-                st.success("Đã lưu. Câu hỏi cần được review lại trước khi active.")
+                st.success("Saved. The question must be reviewed again before activation.")
                 st.rerun()
             except APIClientError as error:
                 st.error(str(error))
     review, activate = st.columns(2)
-    if review.button("Chạy kiểm tra và review", width="stretch"):
+    if review.button("Run deterministic review", width="stretch"):
         try:
             response = client.review_question(selected_code)
             _show_review(response)
             st.rerun()
         except APIClientError as error:
             st.error(str(error))
-    if activate.button("Kích hoạt nếu hợp lệ", type="primary", width="stretch"):
+    if activate.button("Activate if valid", type="primary", width="stretch"):
         try:
             response = client.activate_question(selected_code)
-            st.success(f"Đã kích hoạt {response['question_code']}.")
+            st.success(f"Activated {response['question_code']}.")
             st.rerun()
         except APIClientError as error:
             st.error(str(error))
@@ -238,16 +238,16 @@ def render(client: ExamAPIClient) -> None:
 
 def _chart_rows(distribution: dict) -> list[dict]:
     return [
-        {"Mức": key, "Số câu": value}
+        {"Level": key, "Questions": value}
         for key, value in distribution.items()
     ]
 
 
 def _show_review(response: dict) -> None:
     if response["valid"]:
-        st.success("Câu hỏi vượt qua các kiểm tra xác định.")
+        st.success("The question passed deterministic validation.")
     else:
-        st.error("Câu hỏi còn lỗi chặn.")
+        st.error("The question still has blocking validation issues.")
     for issue in response["issues"]:
         if issue["severity"] == "blocking":
             st.error(issue["message"])

@@ -1,3 +1,6 @@
+import re
+import unicodedata
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.knowledge_graph.repository import KnowledgeGraphRepository
@@ -27,29 +30,42 @@ class KnowledgeGraphService:
             )
 
         student_node = f"student:{student['student_code']}"
+        student_label = self._english_label(
+            student["display_name"],
+            self._humanize_identifier(student["student_code"], "Exam taker"),
+        )
         nodes: dict[str, GraphNode] = {
             student_node: GraphNode(
                 id=student_node,
-                label=student["display_name"],
+                label=student_label,
                 type="student",
             )
         }
         edges: dict[tuple[str, str, str], GraphEdge] = {}
+        unit_labels: dict[str, str] = {}
         for ability in abilities:
             subject_node = f"subject:{ability['subject_code']}"
+            subject_label = self._subject_label(
+                ability["subject_code"], ability["subject_name"]
+            )
             nodes.setdefault(
                 subject_node,
                 GraphNode(
                     id=subject_node,
-                    label=ability["subject_name"],
+                    label=subject_label,
                     type="subject",
                 ),
             )
             target = subject_node
             if ability["unit_code"]:
                 target = f"unit:{ability['subject_code']}:{ability['unit_code']}"
+                unit_label = self._english_label(
+                    ability["unit_name"],
+                    self._humanize_identifier(ability["unit_code"], "Knowledge area"),
+                )
+                unit_labels[ability["unit_code"]] = unit_label
                 attributes = {
-                    "unit_type": ability["unit_type"],
+                    "knowledge_type": str(ability["unit_type"]).title(),
                     "understanding": self._mastery_label(ability["mastery_probability"]),
                     "evidence_count": ability["evidence_count"],
                 }
@@ -67,7 +83,7 @@ class KnowledgeGraphService:
                     )
                 nodes[target] = GraphNode(
                     id=target,
-                    label=ability["unit_name"],
+                    label=unit_label,
                     type=ability["unit_type"],
                     attributes=attributes,
                 )
@@ -76,15 +92,22 @@ class KnowledgeGraphService:
                     target,
                     subject_node,
                     "belongs_to_subject",
-                    {"source": "knowledge_units"},
+                    {"source": "Course knowledge structure"},
                 )
                 if ability["parent_code"]:
                     parent = f"unit:{ability['subject_code']}:{ability['parent_code']}"
+                    parent_label = self._english_label(
+                        ability["parent_name"],
+                        self._humanize_identifier(
+                            ability["parent_code"], "Knowledge area"
+                        ),
+                    )
+                    unit_labels[ability["parent_code"]] = parent_label
                     nodes.setdefault(
                         parent,
                         GraphNode(
                             id=parent,
-                            label=ability["parent_name"] or ability["parent_code"],
+                            label=parent_label,
                             type=ability["parent_type"] or "topic",
                         ),
                     )
@@ -93,7 +116,7 @@ class KnowledgeGraphService:
                         parent,
                         target,
                         "prerequisite_of",
-                        {"source": "knowledge_units.parent_unit_id"},
+                        {"source": "Course prerequisite structure"},
                     )
             attributes = {
                 "understanding": self._mastery_label(ability["mastery_probability"]),
@@ -116,29 +139,48 @@ class KnowledgeGraphService:
         for attempt in attempts:
             question_node = f"question:{attempt['question_code']}"
             evidence_node = f"evidence:{attempt['exam_item_id']}"
-            attributes = {"answered": True, "correct": bool(attempt["is_correct"])}
-            if technical:
-                attributes["stem"] = attempt["stem"]
+            result_label = "Correct" if attempt["is_correct"] else "Incorrect"
+            subject_label = self._subject_label(
+                attempt["subject_code"], attempt["subject_code"]
+            )
+            unit_label = next(
+                (
+                    unit_labels[unit_code]
+                    for unit_code in attempt["unit_codes"]
+                    if unit_code in unit_labels
+                ),
+                subject_label,
+            )
+            technical_question_label = self._english_label(
+                attempt["stem"], f"Archived question about {unit_label}"
+            )
+            question_label = (
+                technical_question_label
+                if technical
+                else f"Answered question about {unit_label}"
+            )
+            attributes = {"result": result_label}
+            if technical and not technical_question_label.startswith("Archived question about "):
+                attributes["question_text"] = technical_question_label
             nodes.setdefault(
                 question_node,
                 GraphNode(
                     id=question_node,
-                    label=attempt["question_code"],
+                    label=question_label,
                     type="question",
                     attributes=attributes,
                 ),
             )
-            evidence_attributes = {"correct": bool(attempt["is_correct"])}
+            evidence_attributes = {"result": result_label}
             if technical:
                 evidence_attributes.update(
                     {
-                        "exam_item_id": attempt["exam_item_id"],
                         "answered_at": attempt["answered_at"].isoformat(),
                     }
                 )
             nodes[evidence_node] = GraphNode(
                 id=evidence_node,
-                label="Bằng chứng trả lời",
+                label=f"{result_label} response",
                 type="evidence",
                 attributes=evidence_attributes,
             )
@@ -147,7 +189,7 @@ class KnowledgeGraphService:
                 student_node,
                 evidence_node,
                 "produced_evidence",
-                {"source": "exam_items"},
+                {"source": "Completed test response"},
             )
             self._edge(
                 edges,
@@ -164,14 +206,14 @@ class KnowledgeGraphService:
                         question_node,
                         unit_node,
                         "measures",
-                        {"source": "question_knowledge_units"},
+                        {"source": "Question knowledge mapping"},
                     )
                     self._edge(
                         edges,
                         evidence_node,
                         unit_node,
                         "supports_ability",
-                        {"source": "exam_items"},
+                        {"source": "Completed test response"},
                     )
 
         unit_nodes = {
@@ -180,10 +222,10 @@ class KnowledgeGraphService:
             if node.type in {"topic", "skill"}
         }
         action_labels = {
-            "remediate": "Ôn lại kiến thức nền",
-            "reinforce": "Luyện tập củng cố",
-            "advance": "Chuyển sang vận dụng nâng cao",
-            "initial_assessment": "Hoàn thành bài đánh giá đầu tiên",
+            "remediate": "Review foundational knowledge",
+            "reinforce": "Complete reinforcement practice",
+            "advance": "Continue to advanced application",
+            "initial_assessment": "Complete the first assessment",
         }
         for recommendation in recommendations:
             target = unit_nodes.get(recommendation["unit_code"])
@@ -197,8 +239,10 @@ class KnowledgeGraphService:
             if technical:
                 provenance.update(
                     {
-                        "trace_id": recommendation["inference_trace_id"],
-                        "rule_code": recommendation["derived_by_rule_code"],
+                        "reasoning_trace": recommendation["inference_trace_id"],
+                        "reasoning_rule": self._rule_label(
+                            recommendation["derived_by_rule_code"]
+                        ),
                     }
                 )
             self._edge(edges, student_node, target, "recommended_next", provenance)
@@ -213,13 +257,89 @@ class KnowledgeGraphService:
     @staticmethod
     def _mastery_label(value) -> str:
         if value is None:
-            return "Chưa đủ bằng chứng"
+            return "Insufficient evidence"
         probability = float(value)
         if probability < 0.5:
-            return "Cần ôn tập"
+            return "Needs review"
         if probability < 0.75:
-            return "Đang củng cố"
-        return "Đã nắm vững"
+            return "Reinforcing"
+        return "Mastered"
+
+    @staticmethod
+    def _subject_label(subject_code: str, value: str | None) -> str:
+        known = {
+            "DATABASE": "Database Systems",
+            "NETWORK": "Computer Networks",
+        }
+        return known.get(
+            subject_code,
+            KnowledgeGraphService._english_label(
+                value, KnowledgeGraphService._humanize_identifier(subject_code, "Subject")
+            ),
+        )
+
+    @staticmethod
+    def _english_label(value: str | None, fallback: str) -> str:
+        text = " ".join(str(value or "").split()).strip()
+        known = {
+            "Sinh viên 1": "Student 1",
+            "Sinh viên 2": "Student 2",
+            "Cơ sở dữ liệu": "Database Systems",
+            "Mạng máy tính": "Computer Networks",
+        }
+        if text in known:
+            return known[text]
+        normalized = unicodedata.normalize("NFKC", text)
+        corrupted = bool(re.search(r"(?:\\?u00[0-9a-f]{2}|�)", normalized, re.IGNORECASE))
+        vietnamese = bool(re.search(r"[À-ỹĐđ]", normalized))
+        if not normalized or corrupted or vietnamese:
+            return fallback
+        ascii_text = (
+            normalized.replace("’", "'")
+            .replace("‘", "'")
+            .replace("“", '"')
+            .replace("”", '"')
+            .replace("–", "-")
+            .replace("—", "-")
+            .encode("ascii", "ignore")
+            .decode("ascii")
+        )
+        return ascii_text or fallback
+
+    @staticmethod
+    def _humanize_identifier(value: str | None, fallback: str) -> str:
+        tokens = [token for token in re.split(r"[_\-]+", str(value or "")) if token]
+        while tokens and tokens[0].upper() in {"DB", "DATABASE", "NET", "NETWORK", "DBEN", "NETEN", "EN", "SK", "R"}:
+            tokens.pop(0)
+        acronyms = {
+            "ACID", "ARP", "CIDR", "DDL", "DHCP", "DNS", "HTTPS", "ICMP",
+            "IP", "IPV4", "JOIN", "MAC", "MTU", "MVCC", "NAT", "PAT",
+            "PMTUD", "QOS", "RTP", "SQL", "STP", "TCP", "TLS", "TTL",
+            "UDP", "VLAN", "VPN", "WAL",
+        }
+        words = [
+            token.upper() if token.upper() in acronyms else token.lower()
+            for token in tokens
+        ]
+        if not words:
+            return fallback
+        result = " ".join(words)
+        return result[0].upper() + result[1:]
+
+    @staticmethod
+    def _rule_label(rule_code: str | None) -> str:
+        labels = {
+            "R_LEARNING_START_SUBJECT": "Start with an initial subject assessment",
+            "R_LEARNING_REMEDIATE": "Review weak foundational knowledge",
+            "R_LEARNING_REINFORCE": "Reinforce developing knowledge",
+            "R_LEARNING_ADVANCE": "Advance mastered knowledge",
+        }
+        return labels.get(
+            str(rule_code or ""),
+            KnowledgeGraphService._humanize_identifier(
+                rule_code, "Learning recommendation rule"
+            ),
+        )
 
     @staticmethod
     def _edge(
