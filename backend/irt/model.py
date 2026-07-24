@@ -8,6 +8,7 @@ class IRTResponse:
     b: float
     c: float
     correct: bool
+    weight: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,11 +70,10 @@ def estimate_ability_eap(
                 scale,
             )
             probability = min(1.0 - 1e-12, max(1e-12, probability))
-            log_weight += (
-                math.log(probability)
-                if response.correct
-                else math.log1p(-probability)
+            contribution = (
+                math.log(probability) if response.correct else math.log1p(-probability)
             )
+            log_weight += max(0.0, response.weight) * contribution
         log_weights.append(log_weight)
 
     maximum = max(log_weights)

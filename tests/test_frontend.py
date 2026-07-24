@@ -32,6 +32,9 @@ def test_taker_pages_do_not_render_staff_metrics() -> None:
         "exam.py",
         "result.py",
         "summary.py",
+        "cat_exam.py",
+        "cat_result.py",
+        "knowledge_graph.py",
     ]
     forbidden = ("theta", "bloom", "fisher", "standard_error", "irt")
 
@@ -54,3 +57,21 @@ def test_navigation_is_role_specific() -> None:
     assert '"supervisor_config", "Cấu hình đề thi"' in source
     assert '"admin_questions", "Ngân hàng câu hỏi"' in source
     assert '"admin_accounts", "Tài khoản"' in source
+
+
+def test_native_streamlit_navigation_and_toolbar_are_hidden() -> None:
+    config = (ROOT / ".streamlit" / "config.toml").read_text()
+    styles = (ROOT / "frontend" / "components" / "styles.py").read_text()
+
+    assert "showSidebarNavigation = false" in config
+    assert 'toolbarMode = "minimal"' in config
+    assert '[data-testid="stSidebar"]' in styles
+    assert 'header[data-testid="stHeader"]' in styles
+
+
+def test_llm_page_is_staff_only() -> None:
+    source = (ROOT / "frontend" / "state.py").read_text()
+
+    taker_block = source.split('"exam_taker":', 1)[1].split('"supervisor":', 1)[0]
+    assert "llm_generation" not in taker_block
+    assert source.count('"llm_generation"') == 2

@@ -231,7 +231,7 @@ class QuestionBundleRepository:
                 """
                 INSERT INTO questions (
                     question_code, subject_id, stem, question_type, scoring_mode,
-                    bloom_level, difficulty_label, avg_time_sec, explanation,
+                    bloom_level, difficulty_label, difficulty_norm, avg_time_sec, explanation,
                     display_option_count, must_include_best, randomize_options,
                     irt_a, irt_b, irt_c, irt_status, irt_sample_size,
                     irt_model_version, status, source, created_by, reviewed_by,
@@ -239,7 +239,7 @@ class QuestionBundleRepository:
                 )
                 VALUES (
                     :question_code, :subject_id, :stem, :question_type, :scoring_mode,
-                    :bloom_level, :difficulty_label, :avg_time_sec, :explanation,
+                    :bloom_level, :difficulty_label, :difficulty_norm, :avg_time_sec, :explanation,
                     :display_option_count, :must_include_best, :randomize_options,
                     :irt_a, :irt_b, :irt_c, :irt_status, :irt_sample_size,
                     :irt_model_version, :status, :source, :created_by, :reviewed_by,
@@ -253,6 +253,7 @@ class QuestionBundleRepository:
                     scoring_mode = EXCLUDED.scoring_mode,
                     bloom_level = EXCLUDED.bloom_level,
                     difficulty_label = EXCLUDED.difficulty_label,
+                    difficulty_norm = EXCLUDED.difficulty_norm,
                     avg_time_sec = EXCLUDED.avg_time_sec,
                     explanation = EXCLUDED.explanation,
                     display_option_count = EXCLUDED.display_option_count,
@@ -264,7 +265,7 @@ class QuestionBundleRepository:
                     irt_status = EXCLUDED.irt_status,
                     irt_sample_size = EXCLUDED.irt_sample_size,
                     irt_model_version = EXCLUDED.irt_model_version,
-                    status = EXCLUDED.status,
+                    status = 'draft',
                     source = EXCLUDED.source,
                     created_by = EXCLUDED.created_by,
                     reviewed_by = EXCLUDED.reviewed_by,
@@ -282,6 +283,7 @@ class QuestionBundleRepository:
                 "scoring_mode": question["scoring_mode"],
                 "bloom_level": bundle["bloom"]["bloom_code"],
                 "difficulty_label": question["difficulty_label"],
+                "difficulty_norm": irt_item["difficulty_norm"],
                 "avg_time_sec": question["avg_time_sec"],
                 "explanation": question["explanation"],
                 "display_option_count": question["display_option_count"],
@@ -293,7 +295,7 @@ class QuestionBundleRepository:
                 "irt_status": irt_item["calibrated_status"],
                 "irt_sample_size": irt_item["calibration_sample_size"],
                 "irt_model_version": irt_item["model_version"],
-                "status": question["status"],
+                "status": "draft",
                 "source": question["source"],
                 "created_by": question["created_by"],
                 "reviewed_by": question.get("reviewed_by"),
@@ -404,20 +406,16 @@ class QuestionBundleRepository:
             """
             INSERT INTO kb_facts (
                 fact_type, subject_ref, predicate_code, object_ref, object_value,
-                confidence, is_inferred, source, created_by, provenance
+                fact_args, confidence, is_inferred, source, created_by, provenance
             )
             VALUES (
                 :fact_type, :subject_ref, :predicate_code, :object_ref,
-                CAST(:object_value AS JSONB), :confidence, FALSE, :source,
+                CAST(:object_value AS JSONB), CAST(:fact_args AS JSONB),
+                :confidence, FALSE, :source,
                 :created_by, CAST(:provenance AS JSONB)
             )
-            ON CONFLICT (
-                fact_type,
-                subject_ref,
-                predicate_code,
-                (COALESCE(object_ref, '')),
-                (COALESCE(object_value, 'null'::JSONB))
-            ) DO UPDATE SET
+            ON CONFLICT (fact_type, predicate_code, (fact_args::TEXT))
+            DO UPDATE SET
                 confidence = EXCLUDED.confidence,
                 source = EXCLUDED.source,
                 created_by = EXCLUDED.created_by,
@@ -440,6 +438,12 @@ class QuestionBundleRepository:
                         self._json(fact["object_value"])
                         if "object_value" in fact
                         else None
+                    ),
+                    "fact_args": self._json(
+                        [
+                            fact["subject_ref"],
+                            fact.get("object_ref", fact.get("object_value")),
+                        ]
                     ),
                     "confidence": fact["confidence"],
                     "source": fact["source"],

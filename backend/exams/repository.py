@@ -104,6 +104,9 @@ class ExamRepository:
         session: AsyncSession,
         subject_id: int,
         statuses: list[str],
+        topic_codes: list[str] | None = None,
+        skill_codes: list[str] | None = None,
+        bloom_levels: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         result = await session.execute(
             text(
@@ -122,7 +125,16 @@ class ExamRepository:
                     COALESCE(
                         MAX(unit.unit_name) FILTER (WHERE link.unit_role = 'topic'),
                         'Chủ đề tổng hợp'
-                    ) AS topic_name
+                    ) AS topic_name,
+                    COALESCE(
+                        MAX(unit.unit_code) FILTER (WHERE link.unit_role = 'topic'),
+                        'GENERAL'
+                    ) AS topic_code,
+                    COALESCE(
+                        ARRAY_AGG(DISTINCT unit.unit_code) FILTER (
+                            WHERE link.unit_role IN ('primary_skill', 'supporting_skill')
+                        ), ARRAY[]::VARCHAR[]
+                    ) AS skill_codes
                 FROM questions q
                 JOIN v_question_pool_validation validation
                     ON validation.question_id = q.question_id
@@ -132,11 +144,41 @@ class ExamRepository:
                 LEFT JOIN knowledge_units unit ON unit.unit_id = link.unit_id
                 WHERE q.subject_id = :subject_id
                   AND q.status = ANY(CAST(:statuses AS VARCHAR[]))
+                  AND (
+                    COALESCE(cardinality(CAST(:bloom_levels AS VARCHAR[])), 0) = 0
+                    OR q.bloom_level = ANY(CAST(:bloom_levels AS VARCHAR[]))
+                  )
+                  AND (
+                    COALESCE(cardinality(CAST(:topic_codes AS VARCHAR[])), 0) = 0
+                    OR EXISTS (
+                        SELECT 1 FROM question_knowledge_units topic_link
+                        JOIN knowledge_units topic_unit ON topic_unit.unit_id = topic_link.unit_id
+                        WHERE topic_link.question_id = q.question_id
+                          AND topic_link.unit_role = 'topic'
+                          AND topic_unit.unit_code = ANY(CAST(:topic_codes AS VARCHAR[]))
+                    )
+                  )
+                  AND (
+                    COALESCE(cardinality(CAST(:skill_codes AS VARCHAR[])), 0) = 0
+                    OR EXISTS (
+                        SELECT 1 FROM question_knowledge_units skill_link
+                        JOIN knowledge_units skill_unit ON skill_unit.unit_id = skill_link.unit_id
+                        WHERE skill_link.question_id = q.question_id
+                          AND skill_link.unit_role IN ('primary_skill', 'supporting_skill')
+                          AND skill_unit.unit_code = ANY(CAST(:skill_codes AS VARCHAR[]))
+                    )
+                  )
                 GROUP BY q.question_id
                 ORDER BY q.question_code
                 """
             ),
-            {"subject_id": subject_id, "statuses": statuses},
+            {
+                "subject_id": subject_id,
+                "statuses": statuses,
+                "topic_codes": topic_codes or [],
+                "skill_codes": skill_codes or [],
+                "bloom_levels": bloom_levels or [],
+            },
         )
         return [dict(row._mapping) for row in result]
 
@@ -518,23 +560,23 @@ class ExamRepository:
                 """
                 INSERT INTO kb_facts (
                     fact_type, subject_ref, predicate_code, object_ref,
-                    confidence, is_inferred, source, created_by, provenance
+                    fact_args, confidence, is_inferred, source, created_by, provenance
                 )
                 VALUES (
                     'binary_relation', :subject_ref, 'selected_option', :object_ref,
-                    1, FALSE, 'exam_response', :student_code,
+                    CAST(:fact_args AS JSONB), 1, FALSE, 'exam_response', :student_code,
                     CAST(:provenance AS JSONB)
                 )
-                ON CONFLICT (
-                    fact_type, subject_ref, predicate_code,
-                    (COALESCE(object_ref, '')),
-                    (COALESCE(object_value, 'null'::JSONB))
-                ) DO UPDATE SET provenance = EXCLUDED.provenance
+                ON CONFLICT (fact_type, predicate_code, (fact_args::TEXT))
+                DO UPDATE SET provenance = EXCLUDED.provenance
                 """
             ),
             {
                 "subject_ref": f"{student_code}@{session_id}",
                 "object_ref": f"{question_code}:{option_code}",
+                "fact_args": self._json(
+                    [f"{student_code}@{session_id}", f"{question_code}:{option_code}"]
+                ),
                 "student_code": student_code,
                 "provenance": self._json(
                     {

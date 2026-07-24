@@ -17,6 +17,8 @@ class QuestionCandidate:
     irt_b: float
     irt_c: float
     avg_time_sec: int
+    topic_code: str = "GENERAL"
+    skill_codes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,19 +31,16 @@ class SelectedQuestion:
 def allocate_difficulty_quotas(
     count: int,
     distribution: dict[str, float],
-    availability: Counter[str],
 ) -> dict[str, int]:
     labels = ("easy", "medium", "hard")
     raw = {label: count * max(0.0, distribution.get(label, 0.0)) for label in labels}
-    quotas = {label: min(availability[label], math.floor(raw[label])) for label in labels}
+    quotas = {label: math.floor(raw[label]) for label in labels}
 
-    while sum(quotas.values()) < min(count, sum(availability.values())):
-        choices = [label for label in labels if quotas[label] < availability[label]]
-        if not choices:
-            break
+    while sum(quotas.values()) < count:
+        choices = list(labels)
         label = max(
             choices,
-            key=lambda item: (raw[item] - quotas[item], availability[item] - quotas[item]),
+            key=lambda item: (raw[item] - quotas[item], -labels.index(item)),
         )
         quotas[label] += 1
     return quotas
@@ -55,22 +54,51 @@ def select_fixed_exam(
     distribution: dict[str, float],
     seed: int,
     scale: float = 1.7,
+    max_estimated_seconds: int | None = None,
 ) -> list[SelectedQuestion]:
     if count <= 0:
         return []
 
     rng = random.Random(seed)
+    quotas = allocate_difficulty_quotas(count, distribution)
     availability = Counter(item.difficulty_label for item in candidates)
-    quotas = allocate_difficulty_quotas(count, distribution, availability)
+    if any(availability[label] < quota for label, quota in quotas.items()):
+        return []
+    if max_estimated_seconds is not None:
+        minimum_duration = sum(
+            sum(
+                item.avg_time_sec
+                for item in sorted(
+                    (candidate for candidate in candidates if candidate.difficulty_label == label),
+                    key=lambda candidate: candidate.avg_time_sec,
+                )[:quota]
+            )
+            for label, quota in quotas.items()
+        )
+        if minimum_duration > max_estimated_seconds:
+            return []
     topic_usage: Counter[str] = Counter()
     selected: list[SelectedQuestion] = []
     remaining = list(candidates)
+    estimated_seconds = 0
+    outstanding = Counter(quotas)
 
     for label in ("easy", "medium", "hard"):
         for _ in range(quotas[label]):
-            pool = [item for item in remaining if item.difficulty_label == label]
+            pool = [
+                item
+                for item in remaining
+                if item.difficulty_label == label
+                and _preserves_time_feasibility(
+                    item,
+                    remaining,
+                    outstanding,
+                    estimated_seconds,
+                    max_estimated_seconds,
+                )
+            ]
             if not pool:
-                break
+                return selected
             chosen = _best_candidate(pool, topic_usage, theta, scale, rng)
             information = fisher_information_3pl(
                 theta,
@@ -90,33 +118,39 @@ def select_fixed_exam(
                     ),
                 )
             )
+            estimated_seconds += chosen.avg_time_sec
             topic_usage[chosen.topic_name] += 1
             remaining.remove(chosen)
-
-    while len(selected) < min(count, len(candidates)) and remaining:
-        chosen = _best_candidate(remaining, topic_usage, theta, scale, rng)
-        information = fisher_information_3pl(
-            theta,
-            chosen.irt_a,
-            chosen.irt_b,
-            chosen.irt_c,
-            scale,
-        )
-        selected.append(
-            SelectedQuestion(
-                candidate=chosen,
-                information=information,
-                reason=(
-                    f"Bổ sung để đủ blueprint; Fisher information {information:.3f} "
-                    f"tại theta={theta:.2f}."
-                ),
-            )
-        )
-        topic_usage[chosen.topic_name] += 1
-        remaining.remove(chosen)
+            outstanding[label] -= 1
 
     rng.shuffle(selected)
     return selected
+
+
+def _preserves_time_feasibility(
+    candidate: QuestionCandidate,
+    remaining: list[QuestionCandidate],
+    outstanding: Counter[str],
+    elapsed: int,
+    maximum: int | None,
+) -> bool:
+    if maximum is None:
+        return True
+    future = list(remaining)
+    future.remove(candidate)
+    quotas = outstanding.copy()
+    quotas[candidate.difficulty_label] -= 1
+    minimum_remaining = 0
+    for label, quota in quotas.items():
+        if quota <= 0:
+            continue
+        durations = sorted(
+            item.avg_time_sec for item in future if item.difficulty_label == label
+        )
+        if len(durations) < quota:
+            return False
+        minimum_remaining += sum(durations[:quota])
+    return elapsed + candidate.avg_time_sec + minimum_remaining <= maximum
 
 
 def _best_candidate(

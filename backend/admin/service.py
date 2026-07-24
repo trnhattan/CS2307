@@ -1,13 +1,29 @@
+import re
+import unicodedata
+
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.admin.errors import AccountConflictError, AccountNotFoundError, AdminError
+from backend.admin.errors import (
+    AccountConflictError,
+    AccountNotFoundError,
+    AdminError,
+    QuestionNotFoundError,
+    QuestionValidationError,
+)
 from backend.admin.repository import AdminRepository
 from backend.admin.schemas import (
     AccountCreateRequest,
     AccountItem,
     AccountUpdateRequest,
+    BulkQuestionActivationResponse,
     QuestionBankResponse,
+    QuestionDetail,
+    QuestionMetadataUpdate,
+    QuestionReadinessResponse,
+    QuestionReviewResponse,
+    QuestionValidationIssue,
+    SubjectReadiness,
     SystemOverview,
 )
 from backend.auth.passwords import hash_password
@@ -17,6 +33,200 @@ from backend.system_config.service import SystemConfigService
 
 
 class AdminService:
+    async def bulk_activate_questions(
+        self, question_codes: list[str], reviewer: str
+    ) -> BulkQuestionActivationResponse:
+        activated = []
+        rejected = {}
+        async with self._session_factory() as session:
+            for question_code in question_codes:
+                data = await self._repository.validation_data(session, question_code)
+                if data is None:
+                    rejected[question_code] = [
+                        QuestionValidationIssue(
+                            code="not_found",
+                            message="Không tìm thấy câu hỏi",
+                            severity="blocking",
+                        )
+                    ]
+                    continue
+                issues = self._validation_issues(data)
+                blockers = [issue for issue in issues if issue.severity == "blocking"]
+                report = {
+                    "valid": not blockers,
+                    "issues": [issue.model_dump() for issue in issues],
+                    "validator": "deterministic-v1",
+                }
+                await self._repository.mark_reviewed(
+                    session, question_code, reviewer, report, not blockers
+                )
+                if blockers:
+                    rejected[question_code] = blockers
+                    continue
+                await self._repository.activate_question(session, question_code, reviewer)
+                activated.append(question_code)
+            await session.commit()
+        return BulkQuestionActivationResponse(activated=activated, rejected=rejected)
+
+    async def question_detail(self, question_code: str) -> QuestionDetail:
+        async with self._session_factory() as session:
+            row = await self._repository.question_detail(session, question_code)
+        if row is None:
+            raise QuestionNotFoundError("Không tìm thấy câu hỏi")
+        return QuestionDetail(**row)
+
+    async def update_question(
+        self, question_code: str, request: QuestionMetadataUpdate, actor: str
+    ) -> QuestionDetail:
+        async with self._session_factory() as session:
+            if await self._repository.question_detail(session, question_code) is None:
+                raise QuestionNotFoundError("Không tìm thấy câu hỏi")
+            await self._repository.update_question_metadata(
+                session,
+                question_code,
+                request.model_dump(exclude_unset=True),
+                actor,
+            )
+            await session.commit()
+        return await self.question_detail(question_code)
+
+    async def review_question(
+        self, question_code: str, reviewer: str
+    ) -> QuestionReviewResponse:
+        async with self._session_factory() as session:
+            data = await self._repository.validation_data(session, question_code)
+            if data is None:
+                raise QuestionNotFoundError("Không tìm thấy câu hỏi")
+            issues = self._validation_issues(data)
+            valid = not any(issue.severity == "blocking" for issue in issues)
+            report = {
+                "valid": valid,
+                "issues": [issue.model_dump() for issue in issues],
+                "validator": "deterministic-v1",
+            }
+            row = await self._repository.mark_reviewed(
+                session, question_code, reviewer, report, valid
+            )
+            await session.commit()
+        return QuestionReviewResponse(
+            question_code=question_code,
+            valid=valid,
+            issues=issues,
+            **row,
+        )
+
+    async def activate_question(
+        self, question_code: str, reviewer: str
+    ) -> QuestionReviewResponse:
+        review = await self.review_question(question_code, reviewer)
+        if not review.valid:
+            raise QuestionValidationError("Câu hỏi còn lỗi chặn và không thể kích hoạt")
+        async with self._session_factory() as session:
+            await self._repository.activate_question(session, question_code, reviewer)
+            await session.commit()
+        return review.model_copy(update={"status": "active"})
+
+    async def readiness(self) -> QuestionReadinessResponse:
+        async with self._session_factory() as session:
+            data = await self._repository.readiness(session)
+            validation_rows = [
+                await self._repository.validation_data(session, question_code)
+                for question_code in await self._repository.question_codes(session)
+            ]
+        subjects = [
+            SubjectReadiness(
+                **row,
+                cat_minimum=data["cat_minimum"],
+                cat_feasible=row["active_questions"] >= data["cat_minimum"],
+            )
+            for row in data["subjects"]
+        ]
+        invalid_questions = sum(
+            bool(
+                row
+                and any(
+                    issue.severity == "blocking"
+                    for issue in self._validation_issues(row)
+                )
+            )
+            for row in validation_rows
+        )
+        gap = max(0, data["target"] - data["total_questions"])
+        limitations = []
+        if gap:
+            limitations.append(
+                f"Ngân hàng hiện có {data['total_questions']} câu, thiếu {gap} câu so với "
+                "mục tiêu học phần; hệ thống không tự sinh bù."
+            )
+        pending_review = data["total_questions"] - data["active_questions"]
+        if pending_review:
+            limitations.append(
+                f"Có {pending_review} câu chưa active và cần quản trị viên review rõ ràng."
+            )
+        if any(not subject.cat_feasible for subject in subjects):
+            limitations.append("Một hoặc nhiều môn chưa đủ câu active cho CAT tối thiểu.")
+        return QuestionReadinessResponse(
+            total_questions=data["total_questions"],
+            active_questions=data["active_questions"],
+            target_questions=data["target"],
+            target_gap=gap,
+            invalid_questions=invalid_questions,
+            subjects=subjects,
+            limitations=limitations,
+        )
+
+    @staticmethod
+    def _validation_issues(data: dict) -> list[QuestionValidationIssue]:
+        issues = []
+        def add(code: str, message: str, severity: str = "blocking") -> None:
+            issues.append(QuestionValidationIssue(code=code, message=message, severity=severity))
+
+        if not data["is_pool_valid"]:
+            add("invalid_answer_pool", "Pool phương án hoặc đáp án tốt nhất không hợp lệ")
+        if data.get("invalid_option_count", 0):
+            add("invalid_option_metadata", "Nội dung hoặc trọng số đáp án không hợp lệ")
+        if data.get("duplicate_option_count", 0):
+            add("duplicate_options", "Các phương án trả lời bị trùng nội dung")
+        if not data["explanation"] or not str(data["explanation"]).strip():
+            add("missing_explanation", "Thiếu giải thích đáp án")
+        if not data["source"] or not str(data["source"]).strip():
+            add("missing_source", "Thiếu nguồn câu hỏi")
+        if not isinstance(data.get("provenance"), dict) or not data["provenance"]:
+            add("missing_provenance", "Thiếu provenance của câu hỏi")
+        if data["topic_count"] != 1:
+            add("invalid_topic", "Câu hỏi phải có đúng một chủ đề")
+        if data["primary_skill_count"] != 1:
+            add("invalid_primary_skill", "Câu hỏi phải có đúng một kỹ năng chính")
+        if data["duplicate_stem"]:
+            add("duplicate_stem", "Nội dung câu hỏi trùng với câu khác")
+        elif any(
+            AdminService._stem_similarity(data["stem"], other) >= 0.85
+            for other in data.get("other_stems") or []
+        ):
+            add("near_duplicate_stem", "Nội dung câu hỏi quá giống câu khác")
+        if float(data["irt_a"]) <= 0 or not -4 <= float(data["irt_b"]) <= 4 or not 0 <= float(data["irt_c"]) <= 0.5:
+            add("invalid_irt_parameters", "Tham số IRT nằm ngoài miền hợp lệ")
+        norm = float(data["difficulty_norm"])
+        label = data["difficulty_label"]
+        if (label == "easy" and norm > 0.4) or (label == "medium" and not 0.3 <= norm <= 0.75) or (label == "hard" and norm < 0.65):
+            add("difficulty_mismatch", "Nhãn độ khó không khớp difficulty_norm")
+        if data["bloom_level"] == "remember" and label == "hard":
+            add("bloom_difficulty_warning", "Bloom remember được gắn nhãn hard", "warning")
+        if data["bloom_level"] == "evaluate" and label == "easy":
+            add("bloom_difficulty_warning", "Bloom evaluate được gắn nhãn easy", "warning")
+        return issues
+
+    @staticmethod
+    def _stem_similarity(left: str, right: str) -> float:
+        def tokens(value: str) -> set[str]:
+            normalized = unicodedata.normalize("NFKC", value).lower()
+            return set(re.sub(r"[^\w]+", " ", normalized).split())
+
+        left_tokens = tokens(left)
+        right_tokens = tokens(right)
+        union = left_tokens | right_tokens
+        return len(left_tokens & right_tokens) / len(union) if union else 0.0
+
     def __init__(
         self,
         repository: AdminRepository,

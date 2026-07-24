@@ -49,6 +49,7 @@ class AbilityAnalytics(BaseModel):
 
 
 class TakerOverview(BaseModel):
+    student_id: int
     username: str
     student_code: str
     student_name: str

@@ -27,8 +27,8 @@ def test_learning_path_prioritizes_weak_units_with_rule_trace() -> None:
     path = service._build_learning_path(evidence, [])
 
     assert path[0].unit_code == "SQL_JOIN"
-    assert path[0].rule_code == "R_LEARNING_REMEDIATE"
-    assert path[1].rule_code == "R_LEARNING_ADVANCE"
+    assert path[0].action == "Ôn lại kiến thức nền và làm bài luyện tập cơ bản"
+    assert path[1].action == "Tiếp tục với bài tập vận dụng cao hơn"
 
 
 def test_learning_path_starts_unassessed_subject() -> None:
@@ -42,5 +42,5 @@ def test_learning_path_starts_unassessed_subject() -> None:
 
     path = service._build_learning_path([], progress)
 
-    assert path[0].rule_code == "R_LEARNING_START_SUBJECT"
+    assert path[0].action == "Hoàn thành bài đánh giá đầu tiên"
     assert path[0].evidence_count == 0

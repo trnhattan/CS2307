@@ -31,4 +31,3 @@ services:
       - "${CLOUDBEAVER_PORT:-8978}:8978"
     volumes:
       - .mnt/cloudbeaver:/opt/cloudbeaver/workspace
-

@@ -49,3 +49,35 @@ class DifficultyConfigResponse(BaseModel):
     distribution: DifficultyDistribution
     updated_by: str | None
     updated_at: datetime
+
+
+class CATConfigUpdate(BaseModel):
+    minimum: int = Field(ge=1, le=100)
+    maximum: int = Field(ge=1, le=100)
+    standard_error_threshold: float = Field(ge=0.05, le=3)
+    stability_epsilon: float = Field(gt=0, le=1)
+    stability_window: int = Field(ge=1, le=20)
+    information_weight: float = Field(ge=0, le=10)
+    weak_unit_weight: float = Field(ge=0, le=10)
+    content_balance_weight: float = Field(ge=0, le=10)
+    exposure_penalty: float = Field(ge=0, le=10)
+    difficulty_distribution: DifficultyDistribution
+    topic_codes: list[str] = Field(default_factory=list, max_length=100)
+    skill_codes: list[str] = Field(default_factory=list, max_length=100)
+    bloom_levels: list[str] = Field(default_factory=list, max_length=5)
+
+    @model_validator(mode="after")
+    def validate_lengths(self):
+        if self.minimum > self.maximum:
+            raise ValueError("Minimum cannot exceed maximum")
+        self.topic_codes = sorted({value.strip().upper() for value in self.topic_codes if value.strip()})
+        self.skill_codes = sorted({value.strip().upper() for value in self.skill_codes if value.strip()})
+        self.bloom_levels = sorted({value.strip().lower() for value in self.bloom_levels if value.strip()})
+        allowed = {"remember", "understand", "apply", "analyze", "evaluate"}
+        if not set(self.bloom_levels) <= allowed:
+            raise ValueError("Unsupported Bloom level")
+        return self
+
+
+class CATConfigResponse(CATConfigUpdate):
+    source: str = "sys_props"

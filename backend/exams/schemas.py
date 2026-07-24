@@ -30,6 +30,10 @@ class GenerateExamRequest(BaseModel):
     question_count: int | None = Field(default=None, ge=1, le=100)
     difficulty_distribution: dict[str, float] | None = None
     seed: int | None = None
+    topic_codes: list[str] = Field(default_factory=list, max_length=50)
+    skill_codes: list[str] = Field(default_factory=list, max_length=50)
+    bloom_levels: list[str] = Field(default_factory=list, max_length=5)
+    max_estimated_minutes: int | None = Field(default=None, ge=1, le=1440)
 
     @model_validator(mode="after")
     def validate_subjects_and_distribution(self):
@@ -39,6 +43,13 @@ class GenerateExamRequest(BaseModel):
         if len(set(normalized)) != len(normalized):
             raise ValueError("Subject codes must be unique")
         self.subject_codes = normalized
+        self.topic_codes = sorted({code.strip().upper() for code in self.topic_codes if code.strip()})
+        self.skill_codes = sorted({code.strip().upper() for code in self.skill_codes if code.strip()})
+        self.bloom_levels = sorted({value.strip().lower() for value in self.bloom_levels if value.strip()})
+        allowed_bloom = {"remember", "understand", "apply", "analyze", "evaluate"}
+        invalid_bloom = sorted(set(self.bloom_levels) - allowed_bloom)
+        if invalid_bloom:
+            raise ValueError(f"Unsupported Bloom levels: {', '.join(invalid_bloom)}")
 
         if self.difficulty_distribution is not None:
             expected = {"easy", "medium", "hard"}

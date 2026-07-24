@@ -222,6 +222,10 @@ __marimo__/
 
 .agent/
 docs/
+!docs/
+docs/*
+!docs/report.md
+!docs/evaluation_report.md
 
 .DS_Store
 
@@ -232,4 +236,16 @@ docker/*
 TODO
 pytest.ini
 scripts/
+!scripts/
+scripts/*
+!scripts/adaptive_exam_schema_optimized.sql
+!scripts/migrate_mandatory_non_llm.sql
+!scripts/evaluate_cat.py
+!scripts/start_backend.py
+!scripts/start_frontend.py
 data/
+!data/
+data/*
+!data/seeds/
+data/seeds/*
+!data/seeds/students.jsonl

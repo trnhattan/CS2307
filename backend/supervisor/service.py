@@ -6,11 +6,63 @@ from backend.supervisor.schemas import (
     SupervisorDashboardResponse,
 )
 from backend.system_config.repository import SystemConfigRepository
-from backend.system_config.schemas import DifficultyConfigResponse, DifficultyDistribution
+from backend.system_config.schemas import (
+    CATConfigResponse,
+    CATConfigUpdate,
+    DifficultyConfigResponse,
+    DifficultyDistribution,
+)
 from backend.system_config.service import SystemConfigService
 
 
 class SupervisorService:
+    async def cat_config(self) -> CATConfigResponse:
+        items = await self._config_service().list_items()
+        values = {item.prop_key: item.prop_value for item in items}
+        return self._cat_config_response(values)
+
+    async def update_cat_config(
+        self, request: CATConfigUpdate, updated_by: str
+    ) -> CATConfigResponse:
+        values = {
+            "CAT_MIN_QUESTION_COUNT": request.minimum,
+            "CAT_MAX_QUESTION_COUNT": request.maximum,
+            "CAT_STOP_STANDARD_ERROR": request.standard_error_threshold,
+            "CAT_STABILITY_EPSILON": request.stability_epsilon,
+            "CAT_STABILITY_WINDOW": request.stability_window,
+            "CAT_INFORMATION_WEIGHT": request.information_weight,
+            "CAT_WEAK_UNIT_WEIGHT": request.weak_unit_weight,
+            "CAT_CONTENT_BALANCE_WEIGHT": request.content_balance_weight,
+            "CAT_EXPOSURE_PENALTY": request.exposure_penalty,
+            "CAT_DIFFICULTY_DISTRIBUTION": request.difficulty_distribution.model_dump(),
+            "CAT_TOPIC_CODES": request.topic_codes,
+            "CAT_SKILL_CODES": request.skill_codes,
+            "CAT_BLOOM_LEVELS": request.bloom_levels,
+        }
+        await self._config_service().update_items(list(values.items()), updated_by)
+        return self._cat_config_response(values)
+
+    def _config_service(self) -> SystemConfigService:
+        return SystemConfigService(SystemConfigRepository(), self._session_factory)
+
+    @staticmethod
+    def _cat_config_response(values: dict) -> CATConfigResponse:
+        return CATConfigResponse(
+            minimum=int(values["CAT_MIN_QUESTION_COUNT"]),
+            maximum=int(values["CAT_MAX_QUESTION_COUNT"]),
+            standard_error_threshold=float(values["CAT_STOP_STANDARD_ERROR"]),
+            stability_epsilon=float(values["CAT_STABILITY_EPSILON"]),
+            stability_window=int(values["CAT_STABILITY_WINDOW"]),
+            information_weight=float(values["CAT_INFORMATION_WEIGHT"]),
+            weak_unit_weight=float(values["CAT_WEAK_UNIT_WEIGHT"]),
+            content_balance_weight=float(values["CAT_CONTENT_BALANCE_WEIGHT"]),
+            exposure_penalty=float(values["CAT_EXPOSURE_PENALTY"]),
+            difficulty_distribution=values["CAT_DIFFICULTY_DISTRIBUTION"],
+            topic_codes=values.get("CAT_TOPIC_CODES", []),
+            skill_codes=values.get("CAT_SKILL_CODES", []),
+            bloom_levels=values.get("CAT_BLOOM_LEVELS", []),
+        )
+
     def __init__(
         self,
         repository: SupervisorRepository,

@@ -7,7 +7,12 @@ from backend.supervisor.repository import SupervisorRepository
 from backend.supervisor.schemas import AdminDashboardResponse, SupervisorDashboardResponse
 from backend.supervisor.service import SupervisorService
 from backend.system_config.errors import ConfigurationError
-from backend.system_config.schemas import DifficultyConfigResponse, DifficultyDistribution
+from backend.system_config.schemas import (
+    CATConfigResponse,
+    CATConfigUpdate,
+    DifficultyConfigResponse,
+    DifficultyDistribution,
+)
 
 
 router = APIRouter()
@@ -47,6 +52,24 @@ async def update_difficulty_distribution(
             distribution,
             user.username,
         )
+    except ConfigurationError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+
+@router.get("/supervisor/config/cat", response_model=CATConfigResponse)
+async def get_cat_config(
+    _: AuthenticatedUser = Depends(require_roles("supervisor", "admin")),
+) -> CATConfigResponse:
+    return await get_supervisor_service().cat_config()
+
+
+@router.put("/supervisor/config/cat", response_model=CATConfigResponse)
+async def update_cat_config(
+    request: CATConfigUpdate,
+    user: AuthenticatedUser = Depends(require_roles("supervisor", "admin")),
+) -> CATConfigResponse:
+    try:
+        return await get_supervisor_service().update_cat_config(request, user.username)
     except ConfigurationError as error:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
 

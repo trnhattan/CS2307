@@ -39,7 +39,6 @@ class LearningPathStep(BaseModel):
     accuracy_percent: float | None
     evidence_count: int
     action: str
-    rule_code: str
     explanation: str
 
 

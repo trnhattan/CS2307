@@ -1,6 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from backend.admin.errors import AccountConflictError, AccountNotFoundError, AdminError
+from backend.admin.errors import (
+    AccountConflictError,
+    AccountNotFoundError,
+    AdminError,
+    QuestionNotFoundError,
+    QuestionValidationError,
+)
 from backend.admin.repository import AdminRepository
 from backend.admin.schemas import (
     AccountCreateRequest,
@@ -8,7 +14,13 @@ from backend.admin.schemas import (
     AccountUpdateRequest,
     AdminConfigResponse,
     AdminConfigUpdateResponse,
+    BulkQuestionActivationRequest,
+    BulkQuestionActivationResponse,
     QuestionBankResponse,
+    QuestionDetail,
+    QuestionMetadataUpdate,
+    QuestionReadinessResponse,
+    QuestionReviewResponse,
     SystemOverview,
 )
 from backend.admin.service import AdminService
@@ -38,6 +50,75 @@ async def question_bank(
     _: AuthenticatedUser = Depends(require_roles("admin")),
 ) -> QuestionBankResponse:
     return await get_admin_service().question_bank()
+
+
+@router.get("/questions/readiness", response_model=QuestionReadinessResponse)
+async def question_readiness(
+    _: AuthenticatedUser = Depends(require_roles("admin")),
+) -> QuestionReadinessResponse:
+    return await get_admin_service().readiness()
+
+
+@router.post(
+    "/questions/bulk-activate",
+    response_model=BulkQuestionActivationResponse,
+)
+async def bulk_activate_questions(
+    request: BulkQuestionActivationRequest,
+    user: AuthenticatedUser = Depends(require_roles("admin")),
+) -> BulkQuestionActivationResponse:
+    return await get_admin_service().bulk_activate_questions(
+        request.question_codes, user.username
+    )
+
+
+@router.get("/questions/{question_code}", response_model=QuestionDetail)
+async def question_detail(
+    question_code: str,
+    _: AuthenticatedUser = Depends(require_roles("admin")),
+) -> QuestionDetail:
+    try:
+        return await get_admin_service().question_detail(question_code)
+    except QuestionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+
+
+@router.patch("/questions/{question_code}", response_model=QuestionDetail)
+async def update_question(
+    question_code: str,
+    request: QuestionMetadataUpdate,
+    user: AuthenticatedUser = Depends(require_roles("admin")),
+) -> QuestionDetail:
+    try:
+        return await get_admin_service().update_question(
+            question_code, request, user.username
+        )
+    except QuestionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+
+
+@router.post("/questions/{question_code}/review", response_model=QuestionReviewResponse)
+async def review_question(
+    question_code: str,
+    user: AuthenticatedUser = Depends(require_roles("admin")),
+) -> QuestionReviewResponse:
+    try:
+        return await get_admin_service().review_question(question_code, user.username)
+    except QuestionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+
+
+@router.post("/questions/{question_code}/activate", response_model=QuestionReviewResponse)
+async def activate_question(
+    question_code: str,
+    user: AuthenticatedUser = Depends(require_roles("admin")),
+) -> QuestionReviewResponse:
+    try:
+        return await get_admin_service().activate_question(question_code, user.username)
+    except QuestionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except QuestionValidationError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
 
 @router.get("/config", response_model=AdminConfigResponse)

@@ -8,3 +8,11 @@ class AccountConflictError(AdminError):
 
 class AccountNotFoundError(AdminError):
     pass
+
+
+class QuestionNotFoundError(AdminError):
+    pass
+
+
+class QuestionValidationError(AdminError):
+    pass

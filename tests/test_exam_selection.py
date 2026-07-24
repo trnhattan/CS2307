@@ -1,4 +1,5 @@
 from collections import Counter
+from dataclasses import replace
 
 from backend.exams.selection import QuestionCandidate, select_fixed_exam
 
@@ -55,3 +56,34 @@ def test_fixed_selection_is_reproducible_with_seed() -> None:
     assert [item.candidate.question_id for item in first] == [
         item.candidate.question_id for item in second
     ]
+
+
+def test_fixed_selection_does_not_substitute_missing_difficulty() -> None:
+    candidates = [make_candidate(index, "medium") for index in range(1, 11)]
+
+    selected = select_fixed_exam(
+        candidates,
+        count=5,
+        theta=0,
+        distribution={"easy": 0.2, "medium": 0.6, "hard": 0.2},
+        seed=1,
+    )
+
+    assert selected == []
+
+
+def test_fixed_selection_reserves_short_items_for_time_constraint() -> None:
+    candidates = [make_candidate(index, "medium") for index in range(1, 7)]
+    candidates[0] = replace(candidates[0], avg_time_sec=300)
+
+    selected = select_fixed_exam(
+        candidates,
+        count=5,
+        theta=0,
+        distribution={"easy": 0, "medium": 1, "hard": 0},
+        seed=1,
+        max_estimated_seconds=300,
+    )
+
+    assert len(selected) == 5
+    assert sum(item.candidate.avg_time_sec for item in selected) <= 300

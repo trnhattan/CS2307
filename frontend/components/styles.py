@@ -5,8 +5,11 @@ def apply_styles() -> None:
     st.markdown(
         """
         <style>
+        [data-testid="stSidebar"], [data-testid="collapsedControl"],
+        [data-testid="stToolbar"], [data-testid="stDecoration"] { display: none !important; }
+        header[data-testid="stHeader"] { height: 0 !important; min-height: 0 !important; }
         .stApp { background: linear-gradient(145deg, #f7f9ff 0%, #eef3ff 55%, #f9fbff 100%); }
-        .block-container { max-width: 1120px; padding-top: 2rem; padding-bottom: 4rem; }
+        .block-container { max-width: 1120px; padding-top: 1.75rem; padding-bottom: 4rem; }
         .hero { padding: 3.6rem 2.5rem; border-radius: 28px; color: white;
                 background: linear-gradient(125deg, #172554 0%, #2547a8 55%, #5b7cfa 100%);
                 box-shadow: 0 24px 70px rgba(37,71,168,.24); text-align: center; }
@@ -35,6 +38,10 @@ def apply_styles() -> None:
         .path-step { background: white; border: 1px solid #dbe4f5; border-left: 5px solid #4f6fe8;
                      border-radius: 16px; padding: 1rem 1.2rem; margin: .55rem 0; }
         .path-step small { color: #64748b; }
+        .user-pill { min-height: 46px; display: flex; align-items: center; justify-content: center;
+                     padding: .45rem .7rem; border: 1px solid #dbe4f5; border-radius: 12px;
+                     background: rgba(255,255,255,.82); color: #475569; font-size: .8rem;
+                     text-align: center; line-height: 1.2; }
         </style>
         """,
         unsafe_allow_html=True,

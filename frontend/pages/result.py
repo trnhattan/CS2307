@@ -3,10 +3,12 @@ import time
 import streamlit as st
 
 from frontend.components.header import render_header
+from frontend.components.llm_explanation import render_explanation_action
+from frontend.api_client import ExamAPIClient
 from frontend.state import go
 
 
-def render() -> None:
+def render(client: ExamAPIClient) -> None:
     result = st.session_state.last_result
     if not result:
         go("subjects")
@@ -17,6 +19,7 @@ def render() -> None:
     score.metric("Điểm", f"{result['total_score']:.1f}/{result['max_score']:.0f}")
     percent.metric("Tỷ lệ", f"{result['percentage']:.1f}%")
     st.success(f"Mức độ hiểu bài: **{result['understanding_label']}**")
+    render_explanation_action(client, result["session_id"], technical=False)
 
     with st.expander("Xem đáp án và giải thích", expanded=False):
         for index, item in enumerate(result["feedback"], start=1):

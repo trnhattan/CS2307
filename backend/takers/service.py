@@ -2,6 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.auth.schemas import AuthenticatedUser
 from backend.exams.errors import ExamError
+from backend.kb.inference import InferenceEngine
+from backend.kb.models import Clause, Fact, Rule
+from backend.kb.repository import KnowledgeBaseRepository
+from backend.kb.schemas import parse_relation, parse_rule
 from backend.takers.repository import TakerRepository
 from backend.takers.schemas import (
     LearningPathStep,
@@ -37,6 +41,11 @@ class TakerService:
                 session,
                 user.student_id,
             )
+            kb_repository = KnowledgeBaseRepository()
+            rules = [parse_rule(row) for row in await kb_repository.rules(session)]
+            relations = [
+                parse_relation(row) for row in await kb_repository.relations(session)
+            ]
 
         subject_progress = [
             SubjectProgress(
@@ -62,26 +71,51 @@ class TakerService:
             summary=summary,
             subject_progress=subject_progress,
             recent_tests=recent_tests,
-            learning_path=self._build_learning_path(evidence_rows, progress_rows),
+            learning_path=self._build_learning_path(
+                evidence_rows,
+                progress_rows,
+                user.student_code or str(user.student_id),
+                InferenceEngine(rules, relations),
+            ),
         )
 
     def _build_learning_path(
         self,
         evidence_rows: list[dict],
         progress_rows: list[dict],
+        student_code: str = "student",
+        engine: InferenceEngine | None = None,
     ) -> list[LearningPathStep]:
+        if engine is None:
+            engine = self._fallback_learning_engine()
+        result = engine.infer(
+            [
+                Fact(
+                    "unit_accuracy",
+                    (student_code, row["unit_code"], float(row["accuracy_percent"]) / 100),
+                    source="response_history",
+                )
+                for row in evidence_rows
+            ]
+        )
+        recommendations = {
+            str(fact.arguments[1]): str(fact.arguments[2])
+            for fact in result.derived_facts
+            if fact.predicate == "recommended_next" and len(fact.arguments) == 3
+        }
+        actions = {
+            "remediate": "Ôn lại kiến thức nền và làm bài luyện tập cơ bản",
+            "reinforce": "Luyện thêm bài tập để củng cố",
+            "advance": "Tiếp tục với bài tập vận dụng cao hơn",
+        }
         steps: list[LearningPathStep] = []
         for row in evidence_rows:
             accuracy = float(row["accuracy_percent"])
-            if accuracy < 50:
-                rule_code = "R_LEARNING_REMEDIATE"
-                action = "Ôn lại kiến thức nền và làm bài luyện tập cơ bản"
-            elif accuracy < 75:
-                rule_code = "R_LEARNING_REINFORCE"
-                action = "Luyện thêm bài tập để củng cố"
-            else:
-                rule_code = "R_LEARNING_ADVANCE"
-                action = "Tiếp tục với bài tập vận dụng cao hơn"
+            recommendation = recommendations.get(
+                row["unit_code"],
+                "reinforce",
+            )
+            action = actions.get(recommendation, "Tiếp tục học theo lộ trình đề xuất")
             steps.append(
                 LearningPathStep(
                     priority=0,
@@ -93,7 +127,6 @@ class TakerService:
                     accuracy_percent=round(accuracy, 2),
                     evidence_count=row["evidence_count"],
                     action=action,
-                    rule_code=rule_code,
                     explanation=(
                         f"Dựa trên {row['evidence_count']} câu đã trả lời, mức chính xác "
                         f"ở {row['unit_name']} là {accuracy:.1f}%."
@@ -116,7 +149,6 @@ class TakerService:
                     accuracy_percent=None,
                     evidence_count=0,
                     action="Hoàn thành bài đánh giá đầu tiên",
-                    rule_code="R_LEARNING_START_SUBJECT",
                     explanation="Chưa có bằng chứng làm bài cho môn học này.",
                 )
             )
@@ -131,6 +163,38 @@ class TakerService:
         )
         selected = steps[:10]
         return [step.model_copy(update={"priority": index}) for index, step in enumerate(selected, 1)]
+
+    @staticmethod
+    def _fallback_learning_engine() -> InferenceEngine:
+        def recommendation(code: str, operator: str, right: float, action: str) -> Rule:
+            conditions = [
+                Clause(
+                    predicate="unit_accuracy",
+                    arguments=("?student", "?unit", "?accuracy"),
+                ),
+                Clause(operator=operator, left="?accuracy", right=right),
+            ]
+            if action == "reinforce":
+                conditions.append(Clause(operator="lt", left="?accuracy", right=0.75))
+            return Rule(
+                code=code,
+                name=code,
+                hypothesis=tuple(conditions),
+                goals=(
+                    Clause(
+                        predicate="recommended_next",
+                        arguments=("?student", "?unit", action),
+                    ),
+                ),
+            )
+
+        return InferenceEngine(
+            (
+                recommendation("R_LEARNING_REMEDIATE", "lt", 0.5, "remediate"),
+                recommendation("R_LEARNING_REINFORCE", "gte", 0.5, "reinforce"),
+                recommendation("R_LEARNING_ADVANCE", "gte", 0.75, "advance"),
+            )
+        )
 
     @staticmethod
     def _understanding_label(percentage: float | None) -> str:

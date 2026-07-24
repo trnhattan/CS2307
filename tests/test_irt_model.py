@@ -32,3 +32,10 @@ def test_eap_moves_theta_in_response_direction() -> None:
     assert incorrect.theta < 0
     assert correct.standard_error > 0
     assert incorrect.standard_error > 0
+
+
+def test_weighted_response_has_less_influence() -> None:
+    full = estimate_ability_eap([IRTResponse(1.5, 1.0, 0.2, True)])
+    partial = estimate_ability_eap([IRTResponse(1.5, 1.0, 0.2, True, weight=0.2)])
+
+    assert 0 < partial.theta < full.theta

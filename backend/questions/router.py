@@ -1,7 +1,9 @@
 from typing import Annotated
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.security import HTTPAuthorizationCredentials
 
+from backend.auth.dependencies import bearer_scheme, get_current_user
 from backend.core.config import get_settings
 from backend.db.session import async_session_factory
 from backend.questions.errors import DatabaseUnavailableError, ImportFileError
@@ -31,8 +33,16 @@ def get_import_service() -> QuestionImportService:
 async def import_question_bundles(
     file: Annotated[UploadFile, File(description="Question bundle JSONL file")],
     dry_run: Annotated[bool, Query(description="Validate without writing")] = False,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> QuestionImportResponse:
     try:
+        if not dry_run:
+            user = await get_current_user(credentials)
+            if user.role != "admin":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only administrators may import question data",
+                )
         return await get_import_service().import_jsonl(file, dry_run=dry_run)
     except ImportFileError as error:
         raise HTTPException(

@@ -109,6 +109,7 @@ class SupervisorRepository:
                 """
                 SELECT
                     app_user.username,
+                    student.student_id,
                     student.student_code,
                     student.display_name AS student_name,
                     COALESCE(test_stats.completed_tests, 0) AS completed_tests,

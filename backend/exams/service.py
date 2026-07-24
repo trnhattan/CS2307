@@ -1,12 +1,13 @@
 import math
-import random
 import secrets
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from backend.abilities.service import AbilityService
 from backend.auth.schemas import AuthenticatedUser
 from backend.exams.errors import ExamError, ExamNotFoundError, ExamStateError
+from backend.exams.options import prepare_display_options
 from backend.exams.repository import ExamRepository
 from backend.exams.schemas import (
     AnswerFeedback,
@@ -23,7 +24,7 @@ from backend.exams.schemas import (
     TakerExamConfig,
 )
 from backend.exams.selection import QuestionCandidate, select_fixed_exam
-from backend.irt.model import IRTResponse, estimate_ability_eap, mastery_probability
+from backend.irt.model import IRTResponse, estimate_ability_eap
 
 
 class ExamService:
@@ -88,6 +89,9 @@ class ExamService:
                     session,
                     subject["subject_id"],
                     statuses,
+                    request.topic_codes,
+                    request.skill_codes,
+                    request.bloom_levels,
                 )
                 if len(rows) < count:
                     raise ExamError(
@@ -104,7 +108,18 @@ class ExamService:
                     distribution=distribution,
                     seed=subject_seed,
                     scale=float(config.get("IRT_SCALE_CONSTANT", 1.7)),
+                    max_estimated_seconds=(
+                        request.max_estimated_minutes * 60
+                        if request.max_estimated_minutes is not None
+                        else None
+                    ),
                 )
+                if len(selected) < count:
+                    raise ExamError(
+                        f"Subject '{subject_code}' cannot satisfy the exact blueprint of "
+                        f"{count} questions with the requested difficulty, content, and "
+                        "time constraints; no questions were substituted or generated"
+                    )
                 selected_ids = [item.candidate.question_id for item in selected]
                 options_by_question = await self._repository.get_options(
                     session,
@@ -120,6 +135,10 @@ class ExamService:
                     "irt_model": runtime_config.irt_model,
                     "theta_at_generation": theta,
                     "central_config_source": "sys_props",
+                    "topic_codes": request.topic_codes,
+                    "skill_codes": request.skill_codes,
+                    "bloom_levels": request.bloom_levels,
+                    "max_estimated_minutes": request.max_estimated_minutes,
                 }
                 session_id = await self._repository.create_session(
                     session,
@@ -138,7 +157,7 @@ class ExamService:
                 for order_no, selected_item in enumerate(selected, start=1):
                     candidate = selected_item.candidate
                     question = rows_by_id[candidate.question_id]
-                    displayed = self._display_options(
+                    displayed = prepare_display_options(
                         options_by_question[candidate.question_id],
                         runtime_config.display_option_count,
                         seed=subject_seed + candidate.question_id,
@@ -332,22 +351,21 @@ class ExamService:
                     }
                 )
 
-            mastery = mastery_probability(final_theta)
+            refreshed = await AbilityService().refresh(
+                session,
+                student_id=exam["student_id"],
+                subject_id=exam["subject_id"],
+                session_id=session_id,
+                scale=scale,
+            )
+            final_theta = refreshed.theta
+            final_se = refreshed.standard_error
             await self._repository.complete_session(
                 session,
                 session_id=session_id,
                 total_score=total_score,
                 theta=final_theta,
                 standard_error=final_se,
-            )
-            await self._repository.upsert_ability(
-                session,
-                student_id=exam["student_id"],
-                subject_id=exam["subject_id"],
-                theta=final_theta,
-                standard_error=final_se,
-                mastery=mastery,
-                evidence_increment=len(items),
             )
             await self._repository.create_scoring_trace(
                 session,
@@ -379,41 +397,13 @@ class ExamService:
             difficulty_label=row["difficulty_label"],
             bloom_level=row["bloom_level"],
             topic_name=row["topic_name"],
+            topic_code=row["topic_code"],
+            skill_codes=tuple(row["skill_codes"]),
             irt_a=float(row["irt_a"]),
             irt_b=float(row["irt_b"]),
             irt_c=float(row["irt_c"]),
             avg_time_sec=row["avg_time_sec"],
         )
-
-    @staticmethod
-    def _display_options(
-        options: list[dict[str, Any]],
-        display_count: int,
-        *,
-        seed: int,
-        randomize: bool,
-    ) -> list[dict[str, Any]]:
-        best = [option for option in options if option["is_best_answer"]]
-        distractors = [option for option in options if not option["is_best_answer"]]
-        if len(best) != 1 or len(options) < display_count:
-            raise ExamError("Question has an invalid active answer pool")
-        rng = random.Random(seed)
-        chosen = best + rng.sample(distractors, display_count - 1)
-        if randomize:
-            rng.shuffle(chosen)
-        return [
-            {
-                "option_code": option["option_code"],
-                "option_text": option["option_text"],
-                "score_weight": float(option["score_weight"]),
-                "is_best_answer": option["is_best_answer"],
-                "distractor_type": option["distractor_type"],
-                "explanation": option["explanation"],
-                "diagnosis": option["diagnosis"],
-                "display_order": index,
-            }
-            for index, option in enumerate(chosen, start=1)
-        ]
 
     @staticmethod
     def _statuses(config: dict[str, Any]) -> list[str]:

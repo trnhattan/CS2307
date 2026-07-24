@@ -2,6 +2,7 @@ import streamlit as st
 
 from frontend.api_client import APIClientError, ExamAPIClient
 from frontend.components.header import render_header
+from frontend.components.llm_explanation import render_explanation_action
 
 
 def render(client: ExamAPIClient) -> None:
@@ -83,6 +84,31 @@ def render_assessment_dashboard(payload: dict, title: str) -> None:
         )
         selected = next(item for item in sessions if item["session_id"] == selected_id)
         render_session_detail(selected)
+        if selected["status"] == "completed":
+            render_explanation_action(client, selected_id, technical=True)
+        if selected["mode"] == "adaptive":
+            try:
+                adaptive = client.staff_cat(selected_id)
+                st.subheader("Quỹ đạo CAT")
+                st.dataframe(
+                    [
+                        {
+                            "Câu": item["order_no"],
+                            "Mã": item["question_code"],
+                            "Đúng": item["is_correct"],
+                            "Theta trước": item["theta_before"],
+                            "Theta sau": item["theta_after"],
+                            "SE": item["standard_error_after"],
+                            "Information": item["item_information"],
+                            "Lý do chọn": item["selection_reason"],
+                        }
+                        for item in adaptive["items"]
+                    ],
+                    width="stretch",
+                    hide_index=True,
+                )
+            except APIClientError as error:
+                st.error(str(error))
 
     st.subheader("Năng lực theo thí sinh và môn học")
     abilities = payload["abilities"]

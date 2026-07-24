@@ -10,7 +10,13 @@ from frontend.state import go
 def render(client: ExamAPIClient) -> None:
     render_header()
     st.markdown("<div class='section-title'>Chọn môn thi</div>", unsafe_allow_html=True)
-    st.caption("Bạn có thể chọn một hoặc nhiều môn. Các môn sẽ được thực hiện lần lượt.")
+    mode = st.radio(
+        "Hình thức",
+        options=["fixed", "adaptive"],
+        format_func=lambda value: "Đề cố định" if value == "fixed" else "Bài thi thích ứng",
+        horizontal=True,
+    )
+    st.caption("Đề cố định cho phép chọn nhiều môn; bài thích ứng thực hiện từng môn một.")
     try:
         payload = client.subjects()
     except APIClientError as error:
@@ -20,12 +26,20 @@ def render(client: ExamAPIClient) -> None:
     labels = {
         item["subject_code"]: item["subject_name"] for item in payload["subjects"]
     }
-    selected = st.multiselect(
-        "Môn học",
-        options=list(labels),
-        format_func=lambda code: labels[code],
-        placeholder="Chọn ít nhất một môn học",
-    )
+    if mode == "fixed":
+        selected = st.multiselect(
+            "Môn học",
+            options=list(labels),
+            format_func=lambda code: labels[code],
+            placeholder="Chọn ít nhất một môn học",
+        )
+    else:
+        selected_subject = st.selectbox(
+            "Môn học",
+            options=[None, *labels],
+            format_func=lambda code: "Chọn một môn học" if code is None else labels[code],
+        )
+        selected = [selected_subject] if selected_subject else []
     question_count = payload["config"]["default_question_count"]
     st.info(
         f"Mỗi môn gồm **{question_count} câu**. Thời gian hiển thị là thời gian "
@@ -39,9 +53,19 @@ def render(client: ExamAPIClient) -> None:
     ):
         try:
             with st.spinner("Đang chuẩn bị đề thi..."):
-                exam = client.generate(selected)
+                if mode == "adaptive":
+                    adaptive = client.start_cat(selected[0])
+                else:
+                    exam = client.generate(selected)
         except APIClientError as error:
             st.error(str(error))
+            return
+        if mode == "adaptive":
+            st.session_state.cat_payload = adaptive
+            st.session_state.cat_started_at = time.time()
+            st.session_state.cat_question_started_at = time.time()
+            st.session_state.cat_result = None
+            go("cat_exam")
             return
         st.session_state.exam_payload = exam
         st.session_state.session_index = 0
