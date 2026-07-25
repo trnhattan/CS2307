@@ -26,6 +26,11 @@ async def migrate() -> None:
                 encoding="utf-8"
             )
         )
+        await connection.execute(
+            (ROOT / "scripts" / "migrate_calibration_and_english.sql").read_text(
+                encoding="utf-8"
+            )
+        )
     finally:
         await connection.close()
 

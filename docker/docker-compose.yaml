@@ -19,6 +19,67 @@ services:
       retries: 5
       start_period: 10s
 
+  backend:
+    image: ${BACKEND_IMAGE:-nhattant/cs2307:backend-v1.0.0}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: backend
+    init: true
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: 8000
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-app}
+      QUESTION_BUNDLE_SCHEMA_PATH: /app/scripts/adaptive_exam_question_bundle.schema.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-nhattant/cs2307:frontend-v1.0.0}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: frontend
+    init: true
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      FRONTEND_HOST: 0.0.0.0
+      FRONTEND_PORT: 8501
+      API_BASE_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8501}:8501"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   cloudbeaver:
     # USERNAME: cbadmin
     # PASSWORD: Cbadmin123

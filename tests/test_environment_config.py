@@ -87,11 +87,20 @@ def test_launchers_use_loaded_host_and_port() -> None:
     assert "settings.port" in frontend
 
 
-def test_infrastructure_compose_does_not_receive_application_secrets() -> None:
+def test_compose_containerizes_app_without_baking_secrets() -> None:
     compose = (ROOT / "docker" / "docker-compose.yaml").read_text()
+    dockerfile = (ROOT / "docker" / "Dockerfile").read_text()
+    dockerignore = (ROOT / ".dockerignore").read_text()
 
-    assert "backend:" not in compose
-    assert "frontend:" not in compose
-    assert "build:" not in compose
-    assert "env_file:" not in compose
-    assert "LLM_API_KEY" not in compose
+    assert "  backend:" in compose
+    assert "  frontend:" in compose
+    assert "target: backend" in compose
+    assert "target: frontend" in compose
+    assert "@postgres:5432/" in compose
+    assert "API_BASE_URL: http://backend:8000" in compose
+    assert compose.count("condition: service_healthy") >= 2
+    assert "LLM_API_KEY:" not in compose
+    assert "FROM runtime AS backend" in dockerfile
+    assert "FROM runtime AS frontend" in dockerfile
+    assert dockerfile.count("USER app") == 2
+    assert ".env" in dockerignore

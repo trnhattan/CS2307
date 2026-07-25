@@ -226,13 +226,16 @@ docs/
 docs/*
 !docs/report.md
 !docs/evaluation_report.md
+!docs/README.md
 
 .DS_Store
 
 docker/*
 !docker/docker-compose.yaml
+!docker/setup.sh
+!docker/Dockerfile
 
-.env.example
+!.env.example
 TODO
 pytest.ini
 scripts/
@@ -243,6 +246,10 @@ scripts/*
 !scripts/migrate_calibration_and_english.sql
 !scripts/seed_english_question_bank.py
 !scripts/evaluate_cat.py
+!scripts/smoke_auth_roles.py
+!scripts/smoke_exam_flow.py
+!scripts/smoke_dashboards.py
+!scripts/smoke_frontend_roles.py
 !scripts/start_backend.py
 !scripts/start_frontend.py
 data/
@@ -251,3 +258,4 @@ data/*
 !data/seeds/
 data/seeds/*
 !data/seeds/students.jsonl
+!data/db_snapshots/cs2307.dump

@@ -2,35 +2,41 @@
 
 FastAPI and Streamlit application for question ingestion, IRT-informed exam generation, scoring, ability estimation, and traceable Rela-model reasoning.
 
-## Run locally
+For teammate installation, application concepts, equations, metrics, role-by-role feature demonstrations, and expected UI results, see [docs/README.md](docs/README.md).
 
-Start only the PostgreSQL and CloudBeaver infrastructure with Docker:
+## Run with Docker
 
-```bash
-docker compose --env-file .env -f docker/docker-compose.yaml up -d
-```
-
-FastAPI and Streamlit intentionally run in the local Conda environment while the application is under development. The repository does not build application containers yet.
-
-A clean database starts with schema, rules, configuration, and the four demo accounts. The reproducible operational seed creates 200 complete English MCQs: 100 Database Systems and 100 Computer Networks. Every item includes a topic, primary skill, Bloom level, difficulty, answer pool, explanation, average time, initial IRT parameters, and provenance. The seed inserts items as `draft`, runs the same deterministic administrator review used by the API, and activates only items that pass. Legacy questions are retired rather than deleted when `--retire-legacy` is used.
-
-Copy the environment template once, then fill in local credentials:
+Copy the environment template, review its credentials, then start the complete stack:
 
 ```bash
 cp .env.example .env
+./docker/setup.sh
+docker compose --env-file .env -f docker/docker-compose.yaml up -d --build --wait
+docker compose --env-file .env -f docker/docker-compose.yaml exec backend \
+  python -m scripts.seed_english_question_bank --activate --retire-legacy
 ```
+
+The backend applies the schema and idempotent migrations before serving requests. The one-time seed command creates and activates the 200-question operational bank. Subsequent starts only need:
+
+```bash
+docker compose --env-file .env -f docker/docker-compose.yaml up -d --wait
+```
+
+A clean database starts with schema, rules, configuration, and the four demo accounts. The reproducible operational seed creates 200 complete English MCQs: 100 Database Systems and 100 Computer Networks. Every item includes a topic, primary skill, Bloom level, difficulty, answer pool, explanation, average time, initial IRT parameters, and provenance. The seed inserts items as `draft`, runs the same deterministic administrator review used by the API, and activates only items that pass. Legacy questions are retired rather than deleted when `--retire-legacy` is used.
 
 `.env` is ignored by Git. It contains only deployment/runtime settings: database location and credentials, backend/frontend host and port, frontend-to-backend endpoint, authentication secret, upload limits, LLM endpoint/key, and network timeouts. Do not commit or share this file.
 
 Exam behavior remains in PostgreSQL `sys_props`, including fixed/CAT question counts, Bloom answer-pool sizes, difficulty distributions, IRT/CAT parameters, learning thresholds, the LLM model, token budgets, temperature, source limit and LLM kill switch. Credentials are never stored in `sys_props`.
 
-For the existing Conda environment:
+## Run FastAPI and Streamlit locally for development
+
+Start only infrastructure in Docker, then run application processes in the existing Conda environment:
 
 ```bash
 conda activate CS2307
 pip install -r requirements.txt
 
-docker compose --env-file .env -f docker/docker-compose.yaml up -d
+docker compose --env-file .env -f docker/docker-compose.yaml up -d postgres cloudbeaver
 docker compose --env-file .env -f docker/docker-compose.yaml exec -T postgres \
   psql -U postgres -d app < scripts/adaptive_exam_schema_optimized.sql
 docker compose --env-file .env -f docker/docker-compose.yaml exec -T postgres \
@@ -50,6 +56,35 @@ In a second terminal, start the frontend:
 ```bash
 conda activate CS2307
 python -m scripts.start_frontend
+```
+
+## Publish application images
+
+Authenticate to Docker Hub, then build and push both versioned targets:
+
+```bash
+docker login
+
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --file docker/Dockerfile \
+  --target backend \
+  --tag nhattant/cs2307:backend-v1.0.0 \
+  --push .
+
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --file docker/Dockerfile \
+  --target frontend \
+  --tag nhattant/cs2307:frontend-v1.0.0 \
+  --push .
+```
+
+Teammates set `BACKEND_IMAGE` and `FRONTEND_IMAGE` in `.env`, then run:
+
+```bash
+docker compose --env-file .env -f docker/docker-compose.yaml pull backend frontend
+docker compose --env-file .env -f docker/docker-compose.yaml up -d --no-build --wait
 ```
 
 - Application UI: `http://localhost:8501`
