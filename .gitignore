@@ -258,4 +258,5 @@ data/*
 !data/seeds/
 data/seeds/*
 !data/seeds/students.jsonl
+!data/db_snapshots/
 !data/db_snapshots/cs2307.dump
