@@ -1103,8 +1103,9 @@ docker compose --env-file .env -f docker/docker-compose.yaml exec -T postgres \
 
 Share snapshots only when they contain demonstration data. Prefer append-only migrations for normal team updates because a snapshot replaces a baseline rather than describing a reviewable schema change.
 
-## 17. Further technical documentation
+## 17. Further documentation
 
+- `docs/knowledge_representation_and_algorithms.md`: detailed Rela-model, problem formulations, equations, inference, IRT/CAT, learning, calibration, graph, and LLM-control mechanisms.
 - `docs/report.md`: course-theory mapping and implementation audit.
 - `docs/evaluation_report.md`: current deterministic CAT/IRT evaluation.
 - `README.md`: concise project entry point and endpoint list.

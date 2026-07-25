@@ -227,6 +227,7 @@ docs/*
 !docs/report.md
 !docs/evaluation_report.md
 !docs/README.md
+!docs/knowledge_representation_and_algorithms.md
 
 .DS_Store
 

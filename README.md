@@ -212,4 +212,4 @@ python -m scripts.smoke_dashboards
 
 The smoke flows require the local PostgreSQL container. The exam flow signs in as `taker1`, writes a completed exam, and verifies scoring. The role flow verifies all four credentials. The dashboard flow verifies personalized progress, supervisor configuration, question-bank reporting, account updates, and role boundaries.
 
-See [docs/report.md](docs/report.md) for the course-theory mapping and [docs/evaluation_report.md](docs/evaluation_report.md) for the CAT evaluation workflow.
+See [docs/knowledge_representation_and_algorithms.md](docs/knowledge_representation_and_algorithms.md) for the detailed knowledge model, problem formulations, equations, and algorithms; [docs/report.md](docs/report.md) for the course-theory audit; and [docs/evaluation_report.md](docs/evaluation_report.md) for the CAT evaluation workflow.
