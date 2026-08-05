@@ -34,6 +34,7 @@ class SupervisorService:
             "CAT_WEAK_UNIT_WEIGHT": request.weak_unit_weight,
             "CAT_CONTENT_BALANCE_WEIGHT": request.content_balance_weight,
             "CAT_EXPOSURE_PENALTY": request.exposure_penalty,
+            "CAT_CRITERION_COVERAGE_WEIGHT": request.criterion_coverage_weight,
             "CAT_DIFFICULTY_DISTRIBUTION": request.difficulty_distribution.model_dump(),
             "CAT_TOPIC_CODES": request.topic_codes,
             "CAT_SKILL_CODES": request.skill_codes,
@@ -57,6 +58,9 @@ class SupervisorService:
             weak_unit_weight=float(values["CAT_WEAK_UNIT_WEIGHT"]),
             content_balance_weight=float(values["CAT_CONTENT_BALANCE_WEIGHT"]),
             exposure_penalty=float(values["CAT_EXPOSURE_PENALTY"]),
+            criterion_coverage_weight=float(
+                values.get("CAT_CRITERION_COVERAGE_WEIGHT", 0.3)
+            ),
             difficulty_distribution=values["CAT_DIFFICULTY_DISTRIBUTION"],
             topic_codes=values.get("CAT_TOPIC_CODES", []),
             skill_codes=values.get("CAT_SKILL_CODES", []),

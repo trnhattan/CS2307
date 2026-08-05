@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -35,6 +37,7 @@ class GenerateExamRequest(BaseModel):
     skill_codes: list[str] = Field(default_factory=list, max_length=50)
     bloom_levels: list[str] = Field(default_factory=list, max_length=5)
     max_estimated_minutes: int | None = Field(default=None, ge=1, le=1440)
+    assessment_purpose: Literal["placement", "practice", "progress"] = "practice"
 
     @model_validator(mode="after")
     def validate_subjects_and_distribution(self):
@@ -43,6 +46,8 @@ class GenerateExamRequest(BaseModel):
             raise ValueError("Select at least one subject")
         if len(set(normalized)) != len(normalized):
             raise ValueError("Subject codes must be unique")
+        if self.assessment_purpose == "placement" and len(normalized) != 1:
+            raise ValueError("A placement assessment covers exactly one subject")
         self.subject_codes = normalized
         self.topic_codes = sorted({code.strip().upper() for code in self.topic_codes if code.strip()})
         self.skill_codes = sorted({code.strip().upper() for code in self.skill_codes if code.strip()})
@@ -87,6 +92,7 @@ class GeneratedSession(BaseModel):
     question_count: int
     estimated_minutes: int
     questions: list[ExamQuestion]
+    assessment_purpose: str = "practice"
 
 
 class GenerateExamResponse(BaseModel):

@@ -68,9 +68,22 @@ class ExamService:
             config = await self._repository.get_config(session)
             runtime_config = self._runtime_config(config)
             statuses = self._statuses(config)
-            count = request.question_count or runtime_config.default_question_count
+            is_placement = request.assessment_purpose == "placement"
+            count = (
+                int(config.get("PLACEMENT_QUESTION_COUNT", 20))
+                if is_placement
+                else request.question_count or runtime_config.default_question_count
+            )
             distribution = (
-                request.difficulty_distribution or runtime_config.difficulty_distribution
+                {
+                    key: float(value)
+                    for key, value in config.get(
+                        "PLACEMENT_DIFFICULTY_DISTRIBUTION",
+                        {"easy": 0.4, "medium": 0.4, "hard": 0.2},
+                    ).items()
+                }
+                if is_placement
+                else request.difficulty_distribution or runtime_config.difficulty_distribution
             )
             base_seed = request.seed if request.seed is not None else secrets.randbits(31)
             student_id = user.student_id
@@ -120,6 +133,7 @@ class ExamService:
                         if request.max_estimated_minutes is not None
                         else None
                     ),
+                    prioritize_skill_coverage=is_placement,
                 )
                 if len(selected) < count:
                     raise ExamError(
@@ -146,6 +160,8 @@ class ExamService:
                     "skill_codes": request.skill_codes,
                     "bloom_levels": request.bloom_levels,
                     "max_estimated_minutes": request.max_estimated_minutes,
+                    "assessment_purpose": request.assessment_purpose,
+                    "criterion_coverage_priority": is_placement,
                 }
                 session_id = await self._repository.create_session(
                     session,
@@ -156,6 +172,7 @@ class ExamService:
                     theta=theta,
                     standard_error=standard_error,
                     question_count=count,
+                    assessment_purpose=request.assessment_purpose,
                 )
                 questions: list[ExamQuestion] = []
                 trace_steps: list[dict[str, Any]] = []
@@ -223,6 +240,7 @@ class ExamService:
                         question_count=count,
                         estimated_minutes=max(1, math.ceil(estimated_seconds / 60)),
                         questions=questions,
+                        assessment_purpose=request.assessment_purpose,
                     )
                 )
 

@@ -133,6 +133,7 @@ class ExamExplanationRepository:
                 WHERE artifact_type = 'exam_explanation'
                   AND session_id = :session_id AND audience = :audience
                   AND status = 'success'
+                  AND model <> 'deterministic-fallback'
                   AND response_payload ->> 'grounding_version' = 'deterministic-evidence-v1'
                 ORDER BY created_at DESC
                 LIMIT 1
@@ -153,6 +154,7 @@ class ExamExplanationRepository:
         *,
         session_id: int,
         audience: str,
+        provider: str,
         model: str,
         context: dict[str, Any],
         actor: str,
@@ -165,13 +167,14 @@ class ExamExplanationRepository:
                     request_payload, created_by
                 ) VALUES (
                     'exam_explanation', :session_id, :audience,
-                    'vlai-openai-compatible', :model, CAST(:context AS JSONB), :actor
+                    :provider, :model, CAST(:context AS JSONB), :actor
                 ) RETURNING artifact_id
                 """
             ),
             {
                 "session_id": session_id,
                 "audience": audience,
+                "provider": provider,
                 "model": model,
                 "context": self._json(context),
                 "actor": actor,

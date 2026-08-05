@@ -42,6 +42,13 @@ class AbilityService:
         responses = await self.repository.subject_responses(session, student_id, subject_id)
         estimate = self._estimate(responses, scale=scale)
         mastery = mastery_probability(estimate.theta)
+        subject_previous = await self.repository.previous_snapshot(
+            session,
+            student_id=student_id,
+            subject_id=subject_id,
+            session_id=session_id,
+            criterion_id=None,
+        )
         await self.repository.upsert(
             session,
             student_id=student_id,
@@ -52,6 +59,22 @@ class AbilityService:
             mastery=mastery,
             evidence_count=len(responses),
         )
+        await self.repository.save_snapshot(
+            session,
+            session_id=session_id,
+            student_id=student_id,
+            subject_id=subject_id,
+            criterion_id=None,
+            theta=estimate.theta,
+            standard_error=estimate.standard_error,
+            mastery=mastery,
+            accuracy_percent=(
+                100 * sum(bool(row["is_correct"]) for row in responses) / len(responses)
+                if responses else 0
+            ),
+            evidence_count=len(responses),
+            previous=subject_previous,
+        )
 
         grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
         units: dict[int, dict[str, Any]] = {}
@@ -60,9 +83,11 @@ class AbilityService:
             units[row["unit_id"]] = row
 
         student_code = await self.repository.student_code(session, student_id)
+        criteria_by_unit = await self.repository.criteria_by_unit(session, subject_id)
         evidence_facts: list[Fact] = []
         for unit_id, rows in grouped.items():
             unit_estimate = self._estimate(rows, scale=scale, weighted=True)
+            unit_mastery = mastery_probability(unit_estimate.theta)
             await self.repository.upsert(
                 session,
                 student_id=student_id,
@@ -70,10 +95,32 @@ class AbilityService:
                 unit_id=unit_id,
                 theta=unit_estimate.theta,
                 standard_error=unit_estimate.standard_error,
-                mastery=mastery_probability(unit_estimate.theta),
+                mastery=unit_mastery,
                 evidence_count=len(rows),
             )
             accuracy = sum(1 for row in rows if row["is_correct"]) / len(rows)
+            criterion_id = criteria_by_unit.get(unit_id)
+            if criterion_id is not None:
+                previous = await self.repository.previous_snapshot(
+                    session,
+                    student_id=student_id,
+                    subject_id=subject_id,
+                    session_id=session_id,
+                    criterion_id=criterion_id,
+                )
+                await self.repository.save_snapshot(
+                    session,
+                    session_id=session_id,
+                    student_id=student_id,
+                    subject_id=subject_id,
+                    criterion_id=criterion_id,
+                    theta=unit_estimate.theta,
+                    standard_error=unit_estimate.standard_error,
+                    mastery=unit_mastery,
+                    accuracy_percent=100 * accuracy,
+                    evidence_count=len(rows),
+                    previous=previous,
+                )
             evidence_facts.append(
                 Fact(
                     predicate="unit_accuracy",

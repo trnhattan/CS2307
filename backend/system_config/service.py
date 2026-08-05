@@ -71,6 +71,13 @@ class SystemConfigService:
             "LLM_QUESTION_MAX_TOKENS": (256, 4096),
             "LLM_EXPLANATION_MAX_TOKENS": (64, 1024),
             "LLM_MAX_SOURCE_CHARS": (500, 20000),
+            "LLM_CHAT_MAX_TOKENS": (64, 2048),
+            "LLM_CHAT_HISTORY_LIMIT": (1, 50),
+            "LLM_CHAT_RETRIEVAL_LIMIT": (10, 500),
+            "LLM_CHAT_KNOWLEDGE_LIMIT": (10, 1000),
+            "LLM_CHAT_WEB_SEARCH_MAX_RESULTS": (1, 10),
+            "LLM_CHAT_TOOL_ROUNDS": (1, 8),
+            "PROFILE_GRAPH_MIN_TESTS": (1, 20),
         }
         if key in integer_ranges:
             if isinstance(value, bool) or not isinstance(value, int):
@@ -80,17 +87,34 @@ class SystemConfigService:
                 raise ConfigurationError(f"{key} must be between {lower} and {upper}")
             return value
 
-        if key in {"MUST_INCLUDE_BEST_ANSWER", "RANDOMIZE_OPTION_ORDER", "LLM_ENABLED"}:
+        if key in {
+            "MUST_INCLUDE_BEST_ANSWER",
+            "RANDOMIZE_OPTION_ORDER",
+            "LLM_ENABLED",
+            "LLM_REASONING_ENABLED",
+            "LLM_CHAT_WEB_SEARCH_ENABLED",
+        }:
             if not isinstance(value, bool):
                 raise ConfigurationError(f"{key} must be true or false")
             return value
 
         if key == "LLM_TEMPERATURE":
             return cls._number_in_range(key, value, 0, 1)
+        if key in {
+            "PROFILE_IMPROVEMENT_DELTA",
+            "PROFILE_NEEDS_REVIEW_THRESHOLD",
+            "PROFILE_DEVELOPING_THRESHOLD",
+            "PROFILE_MASTERY_THRESHOLD",
+        }:
+            return cls._number_in_range(key, value, 0, 1)
         if key == "LLM_MODEL":
             if not isinstance(value, str) or not value.strip() or len(value) > 200:
                 raise ConfigurationError("LLM_MODEL must be a non-empty model name")
             return value.strip()
+        if key == "LLM_PROVIDER":
+            if value not in {"openrouter", "gemini"}:
+                raise ConfigurationError("LLM_PROVIDER must be openrouter or gemini")
+            return value
 
         if key == "CAT_INITIAL_THETA":
             return cls._number_in_range(key, value, -6, 6)
@@ -176,6 +200,23 @@ class SystemConfigService:
             raise ConfigurationError(
                 "LEARNING_REMEDIATE_THRESHOLD must be below LEARNING_ADVANCE_THRESHOLD"
             )
+        needs_review = float(values.get("PROFILE_NEEDS_REVIEW_THRESHOLD", 0.45))
+        developing = float(values.get("PROFILE_DEVELOPING_THRESHOLD", 0.60))
+        mastered = float(values.get("PROFILE_MASTERY_THRESHOLD", 0.75))
+        if not needs_review < developing < mastered:
+            raise ConfigurationError(
+                "Profile thresholds must satisfy needs review < developing < mastery"
+            )
+        provider = str(values.get("LLM_PROVIDER") or "openrouter")
+        model = str(values.get("LLM_MODEL") or "")
+        if provider == "gemini" and not model.lower().startswith("gemini-"):
+            raise ConfigurationError(
+                "Gemini requires an LLM_MODEL beginning with gemini-"
+            )
+        if provider == "openrouter" and model.lower().startswith("gemini-"):
+            raise ConfigurationError(
+                "OpenRouter requires an LLM_MODEL that is not a Gemini model ID"
+            )
 
     @staticmethod
     async def _sync_learning_rules(
@@ -196,6 +237,35 @@ class SystemConfigService:
             "R_LEARNING_ADVANCE": [
                 {"predicate": "unit_accuracy", "args": ["?student", "?unit", "?accuracy"]},
                 {"operator": "gte", "left": "?accuracy", "right": high},
+            ],
+            "R_CRITERION_REMEDIATE": [
+                {"predicate": "criterion_mastery", "args": ["?student", "?criterion", "?mastery"]},
+                {
+                    "operator": "lt", "left": "?mastery",
+                    "right": float(values.get("PROFILE_NEEDS_REVIEW_THRESHOLD", 0.45)),
+                },
+            ],
+            "R_CRITERION_DEVELOP": [
+                {"predicate": "criterion_mastery", "args": ["?student", "?criterion", "?mastery"]},
+                {
+                    "operator": "gte", "left": "?mastery",
+                    "right": float(values.get("PROFILE_NEEDS_REVIEW_THRESHOLD", 0.45)),
+                },
+                {
+                    "operator": "lt", "left": "?mastery",
+                    "right": float(values.get("PROFILE_DEVELOPING_THRESHOLD", 0.60)),
+                },
+            ],
+            "R_CRITERION_REINFORCE": [
+                {"predicate": "criterion_mastery", "args": ["?student", "?criterion", "?mastery"]},
+                {
+                    "operator": "gte", "left": "?mastery",
+                    "right": float(values.get("PROFILE_DEVELOPING_THRESHOLD", 0.60)),
+                },
+                {
+                    "operator": "lt", "left": "?mastery",
+                    "right": float(values.get("PROFILE_MASTERY_THRESHOLD", 0.75)),
+                },
             ],
         }
         for rule_code, hypothesis in hypotheses.items():

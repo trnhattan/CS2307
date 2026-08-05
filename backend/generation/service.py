@@ -22,7 +22,7 @@ from backend.generation.schemas import (
     RecentGeneratedQuestion,
 )
 from backend.generation.validator import validate_generated_question
-from backend.llm.client import OpenAICompatibleClient
+from backend.llm.client import LLMClient, MultiProviderClient
 from backend.llm.errors import LLMError
 from backend.prompts import load_prompt
 
@@ -33,7 +33,7 @@ class QuestionGenerationService:
         repository: QuestionGenerationRepository,
         session_factory: async_sessionmaker[AsyncSession],
         settings: Settings,
-        client: OpenAICompatibleClient,
+        client: LLMClient,
     ) -> None:
         self._repository = repository
         self._session_factory = session_factory
@@ -42,11 +42,13 @@ class QuestionGenerationService:
 
     async def status(self) -> GenerationStatus:
         config = await self._config()
+        model = self._model(config)
+        provider = self._provider(config)
         return GenerationStatus(
             enabled=bool(config.get("LLM_ENABLED", False)),
-            configured=bool(self._settings.llm_api_key),
-            model=self._model(config),
-            provider=self._settings.llm_base_url,
+            configured=self._is_configured(model, provider),
+            model=model,
+            provider=self._provider_endpoint(model, provider),
         )
 
     async def catalog(self) -> GenerationCatalog:
@@ -74,11 +76,13 @@ class QuestionGenerationService:
             self._validate_units(request, units["units"])
             existing_stems = await self._repository.existing_stems(session)
             model = self._model(config)
+            provider = self._provider(config)
             artifact_id = await self._repository.create_artifact(
                 session,
                 artifact_type="question_generation",
                 audience="reviewer",
                 model=model,
+                provider=provider,
                 request_payload={
                     **request.model_dump(),
                     "source_context": (request.source_context or "")[: int(
@@ -107,6 +111,8 @@ class QuestionGenerationService:
                 ),
                 max_tokens=int(config.get("LLM_QUESTION_MAX_TOKENS", 1600)),
                 temperature=float(config.get("LLM_TEMPERATURE", 0.2)),
+                reasoning_enabled=bool(config.get("LLM_REASONING_ENABLED", True)),
+                provider=provider,
             )
             generated = GeneratedQuestionPayload.model_validate(completion.data)
             issues = validate_generated_question(
@@ -193,8 +199,41 @@ class QuestionGenerationService:
     def _ensure_available(self, config: dict[str, Any]) -> None:
         if not config.get("LLM_ENABLED", False):
             raise GenerationUnavailableError("LLM features are disabled in sys_props")
-        if not self._settings.llm_api_key:
-            raise GenerationUnavailableError("LLM_API_KEY is not configured")
+        model = self._model(config)
+        provider = self._provider(config)
+        if not self._is_configured(model, provider):
+            raise GenerationUnavailableError(self._configuration_message(model, provider))
+
+    def _is_configured(self, model: str, provider: str) -> bool:
+        if isinstance(self._client, MultiProviderClient):
+            return self._client.is_configured(model, provider)
+        return bool(
+            getattr(
+                self._settings,
+                "gemini_api_key" if provider == "gemini" else "openrouter_api_key",
+                None,
+            )
+        )
+
+    def _configuration_message(self, model: str, provider: str) -> str:
+        if isinstance(self._client, MultiProviderClient):
+            return self._client.configuration_message(model, provider)
+        return (
+            "GEMINI_API_KEY is not configured"
+            if provider == "gemini"
+            else "OPENROUTER_API_KEY is not configured"
+        )
+
+    def _provider_endpoint(self, model: str, provider: str) -> str:
+        if isinstance(self._client, MultiProviderClient):
+            return self._client.provider_endpoint(model, provider)
+        return str(
+            getattr(
+                self._settings,
+                "gemini_base_url" if provider == "gemini" else "openrouter_base_url",
+                "",
+            )
+        )
 
     @staticmethod
     def _model(config: dict[str, Any]) -> str:
@@ -202,6 +241,13 @@ class QuestionGenerationService:
         if not isinstance(model, str) or not model.strip():
             raise GenerationUnavailableError("LLM_MODEL is not configured in sys_props")
         return model.strip()
+
+    @staticmethod
+    def _provider(config: dict[str, Any]) -> str:
+        provider = str(config.get("LLM_PROVIDER") or "openrouter").strip().lower()
+        if provider not in {"openrouter", "gemini"}:
+            raise GenerationUnavailableError("LLM_PROVIDER must be openrouter or gemini")
+        return provider
 
     @staticmethod
     def _validate_units(request: QuestionGenerationRequest, units: dict[str, Any]) -> None:

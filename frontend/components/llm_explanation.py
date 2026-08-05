@@ -28,10 +28,21 @@ def render_explanation_action(
     if not cached:
         return
     st.info(cached["explanation"])
-    st.caption(
-        f"Persisted artifact #{cached['artifact_id']} · model {cached['model']} · "
-        f"{'cache reused' if cached.get('cached') else 'new generation'}"
-    )
+    if cached["model"] == "deterministic-fallback":
+        st.caption(
+            "Feedback was generated directly from scored evidence because the "
+            "language model was unavailable."
+        )
+    elif technical:
+        st.caption(
+            f"Persisted artifact #{cached['artifact_id']} · model {cached['model']} · "
+            f"{'cache reused' if cached.get('cached') else 'new generation'}"
+        )
+    else:
+        st.caption(
+            "Saved learning feedback · "
+            f"{'cache reused' if cached.get('cached') else 'new generation'}"
+        )
     if cached.get("evidence_used"):
         with st.expander("Evidence used"):
             for value in cached["evidence_used"]:

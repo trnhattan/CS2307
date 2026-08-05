@@ -42,6 +42,7 @@ def test_selector_combines_information_weakness_balance_and_exposure() -> None:
         "weak_unit",
         "content_balance",
         "exposure",
+        "criterion_coverage",
     }
 
 

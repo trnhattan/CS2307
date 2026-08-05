@@ -11,7 +11,7 @@ from backend.explanations.errors import (
 from backend.explanations.repository import ExamExplanationRepository
 from backend.explanations.schemas import ExamExplanationResponse
 from backend.explanations.service import ExamExplanationService
-from backend.llm.client import OpenAICompatibleClient
+from backend.llm.client import create_llm_client
 
 
 router = APIRouter()
@@ -23,11 +23,7 @@ def get_explanation_service() -> ExamExplanationService:
         ExamExplanationRepository(),
         async_session_factory,
         settings,
-        OpenAICompatibleClient(
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
-            timeout_seconds=settings.llm_timeout_seconds,
-        ),
+        create_llm_client(settings),
     )
 
 

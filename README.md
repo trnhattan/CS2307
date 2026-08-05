@@ -122,6 +122,7 @@ Knowledge and learning graphs use NetworkX for graph structure and a PyVis/vis-n
 | Administrator | `admin` | `admin` | System overview |
 | Supervisor | `supervisor` | `supervisor` | Taker overview |
 | Exam taker | `taker1` | `taker1` | Personal progress |
+| Growth demo taker | `demo_taker` | `demo_taker` | Prepared longitudinal learner profile |
 | Exam taker | `taker2` | `taker2` | Personal progress |
 
 Passwords are stored as salted PBKDF2-SHA256 hashes. Change the default credentials and `AUTH_SECRET` outside local development.

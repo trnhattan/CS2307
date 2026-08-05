@@ -17,6 +17,49 @@
   const countLabel = document.getElementById("graph-count");
   const statusLabel = document.getElementById("graph-status");
   const physicsButton = document.getElementById("graph-physics");
+  const graphContainer = document.getElementById("mynetwork");
+  const tooltip = document.createElement("div");
+  tooltip.className = "graph-tooltip";
+  tooltip.hidden = true;
+  graphContainer.appendChild(tooltip);
+  let mousePosition = { x: 0, y: 0 };
+
+  function positionTooltip() {
+    if (tooltip.hidden) return;
+    const maximumLeft = Math.max(8, graphContainer.clientWidth - tooltip.offsetWidth - 8);
+    const maximumTop = Math.max(8, graphContainer.clientHeight - tooltip.offsetHeight - 8);
+    tooltip.style.left = `${Math.min(mousePosition.x + 14, maximumLeft)}px`;
+    tooltip.style.top = `${Math.min(mousePosition.y + 14, maximumTop)}px`;
+  }
+
+  function showTooltip(item) {
+    const rows = item && Array.isArray(item.tooltipRows) ? item.tooltipRows : [];
+    if (!rows.length) return;
+    tooltip.replaceChildren();
+    rows.forEach((row) => {
+      const line = document.createElement("div");
+      line.className = row.heading ? "graph-tooltip-heading" : "graph-tooltip-row";
+      const label = document.createElement("strong");
+      label.textContent = row.heading ? row.label : `${row.label}:`;
+      line.appendChild(label);
+      if (row.value !== null && row.value !== undefined && row.value !== "") {
+        line.appendChild(document.createTextNode(` ${row.value}`));
+      }
+      tooltip.appendChild(line);
+    });
+    tooltip.hidden = false;
+    positionTooltip();
+  }
+
+  function hideTooltip() {
+    tooltip.hidden = true;
+  }
+
+  graphContainer.addEventListener("mousemove", (event) => {
+    const bounds = graphContainer.getBoundingClientRect();
+    mousePosition = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+    positionTooltip();
+  });
 
   function childrenOf(nodeId) {
     return config.childrenByParent[nodeId] || [];
@@ -63,7 +106,7 @@
     if (nodeTypeFilter === "all") return visible;
     const contextual = new Set();
     visible.forEach((nodeId) => {
-      if (nodeStore[nodeId].group !== nodeTypeFilter) return;
+      if (nodeStore[nodeId].nodeType !== nodeTypeFilter) return;
       contextual.add(nodeId);
       ancestorsOf(nodeId).forEach((ancestor) => contextual.add(ancestor));
     });
@@ -183,6 +226,13 @@
     if (expanded.has(nodeId)) collapseNode(nodeId);
     else expandNode(nodeId);
   });
+
+  network.on("hoverNode", (event) => showTooltip(nodeStore[String(event.node)]));
+  network.on("blurNode", hideTooltip);
+  network.on("hoverEdge", (event) => showTooltip(edgeStore[String(event.edge)]));
+  network.on("blurEdge", hideTooltip);
+  network.on("dragStart", hideTooltip);
+  network.on("zoom", hideTooltip);
 
   document.getElementById("graph-find").addEventListener("click", findNode);
   searchInput.addEventListener("keydown", (event) => {

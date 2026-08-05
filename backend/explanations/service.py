@@ -12,7 +12,7 @@ from backend.explanations.errors import (
 )
 from backend.explanations.repository import ExamExplanationRepository
 from backend.explanations.schemas import ExamExplanationResponse, ExplanationPayload
-from backend.llm.client import OpenAICompatibleClient
+from backend.llm.client import LLMClient, MultiProviderClient
 from backend.llm.errors import LLMError
 from backend.prompts import load_prompt
 
@@ -25,7 +25,7 @@ class ExamExplanationService:
         repository: ExamExplanationRepository,
         session_factory: async_sessionmaker[AsyncSession],
         settings: Settings,
-        client: OpenAICompatibleClient,
+        client: LLMClient,
     ) -> None:
         self._repository = repository
         self._session_factory = session_factory
@@ -63,10 +63,12 @@ class ExamExplanationService:
                     "LLM_MODEL is not configured in sys_props"
                 )
             model = model.strip()
+            provider = self._provider(config)
             artifact_id = await self._repository.create_artifact(
                 session,
                 session_id=session_id,
                 audience=audience,
+                provider=provider,
                 model=model,
                 context=context,
                 actor=user.username,
@@ -75,42 +77,97 @@ class ExamExplanationService:
         try:
             if not config.get("LLM_ENABLED", False):
                 raise ExplanationUnavailableError("LLM features are disabled in sys_props")
-            if not self._settings.llm_api_key:
-                raise ExplanationUnavailableError("LLM_API_KEY is not configured")
+            if not self._is_configured(model, provider):
+                raise ExplanationUnavailableError(
+                    self._configuration_message(model, provider)
+                )
             completion = await self._client.complete_json(
                 model=model,
                 messages=self._messages(context, technical),
                 max_tokens=int(config.get("LLM_EXPLANATION_MAX_TOKENS", 350)),
                 temperature=0.1,
+                reasoning_enabled=bool(config.get("LLM_REASONING_ENABLED", True)),
+                provider=provider,
             )
             generated_payload = ExplanationPayload.model_validate(completion.data)
             payload = self._ground_payload(generated_payload, context, technical)
             stored_payload = payload.model_dump()
             stored_payload["grounding_version"] = self.GROUNDING_VERSION
+            response_model = completion.model
             async with self._session_factory() as session:
                 saved = await self._repository.mark_success(
                     session,
                     artifact_id,
-                    completion.model,
+                    response_model,
                     stored_payload,
                     completion.usage,
                 )
                 await session.commit()
         except (LLMError, ExplanationUnavailableError, ValidationError) as error:
+            payload = self._fallback_payload(context, technical)
+            stored_payload = payload.model_dump()
+            stored_payload["grounding_version"] = self.GROUNDING_VERSION
+            response_model = "deterministic-fallback"
             async with self._session_factory() as session:
-                await self._repository.mark_failed(
-                    session, artifact_id, f"{type(error).__name__}: {error}"
+                saved = await self._repository.mark_success(
+                    session,
+                    artifact_id,
+                    response_model,
+                    stored_payload,
+                    {
+                        "fallback": True,
+                        "provider_error_type": type(error).__name__,
+                    },
                 )
                 await session.commit()
-            raise ExplanationUnavailableError(str(error)) from error
         return ExamExplanationResponse(
             artifact_id=artifact_id,
             session_id=session_id,
             audience=audience,
-            model=completion.model,
+            model=response_model,
             cached=False,
             generated_at=saved["generated_at"],
             **payload.model_dump(),
+        )
+
+    def _is_configured(self, model: str, provider: str) -> bool:
+        if isinstance(self._client, MultiProviderClient):
+            return self._client.is_configured(model, provider)
+        return bool(
+            getattr(
+                self._settings,
+                "gemini_api_key" if provider == "gemini" else "openrouter_api_key",
+                None,
+            )
+        )
+
+    def _configuration_message(self, model: str, provider: str) -> str:
+        if isinstance(self._client, MultiProviderClient):
+            return self._client.configuration_message(model, provider)
+        return (
+            "GEMINI_API_KEY is not configured"
+            if provider == "gemini"
+            else "OPENROUTER_API_KEY is not configured"
+        )
+
+    @staticmethod
+    def _provider(config: dict) -> str:
+        provider = str(config.get("LLM_PROVIDER") or "openrouter").strip().lower()
+        if provider not in {"openrouter", "gemini"}:
+            raise ExplanationUnavailableError("LLM_PROVIDER must be openrouter or gemini")
+        return provider
+
+    @classmethod
+    def _fallback_payload(
+        cls, context: dict, technical: bool
+    ) -> ExplanationPayload:
+        return ExplanationPayload(
+            explanation=cls._fallback_explanation(context, technical),
+            evidence_used=cls._deterministic_evidence(context, technical),
+            limitations=[
+                "Phản hồi được tạo trực tiếp từ kết quả đã chấm vì mô hình ngôn ngữ "
+                "tạm thời không khả dụng."
+            ],
         )
 
     @staticmethod

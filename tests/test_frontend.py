@@ -3,6 +3,8 @@ from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
 from frontend.components import interactive_graph
+from frontend.components import profile_table
+from frontend.pages import admin_config
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +39,7 @@ def test_taker_pages_do_not_render_staff_metrics() -> None:
         "cat_exam.py",
         "cat_result.py",
         "knowledge_graph.py",
+        "learner_chat.py",
     ]
     forbidden = ("theta", "bloom", "fisher", "standard_error", "irt")
 
@@ -114,7 +117,7 @@ def test_graph_runs_in_an_isolated_iframe() -> None:
     assert "st.html(document" not in source
 
 
-def test_graph_tooltips_are_plain_multiline_text() -> None:
+def test_graph_tooltips_use_structured_bold_labels() -> None:
     tooltip = interactive_graph._node_tooltip(
         "topic",
         "Audit History",
@@ -125,12 +128,101 @@ def test_graph_tooltips_are_plain_multiline_text() -> None:
         },
     )
 
-    assert tooltip == (
-        "Topic\nAudit History\nKnowledge type: Topic\n"
-        "Understanding: Needs review\nAnswered questions: 1"
+    assert tooltip == [
+        {"label": "Topic", "value": None, "heading": True},
+        {"label": "Topic", "value": "Audit History", "heading": False},
+        {"label": "Knowledge type", "value": "Topic", "heading": False},
+        {"label": "Understanding", "value": "Needs review", "heading": False},
+        {"label": "Answered questions", "value": "1", "heading": False},
+    ]
+    explorer = (ROOT / "frontend" / "components" / "graph_explorer.js").read_text()
+    assert 'document.createElement("strong")' in explorer
+    assert "textContent" in explorer
+
+
+def test_graph_uses_explicit_colors_instead_of_vis_group_palette() -> None:
+    source = (ROOT / "frontend" / "components" / "interactive_graph.py").read_text()
+    explorer = (ROOT / "frontend" / "components" / "graph_explorer.js").read_text()
+
+    assert "nodeType=node_type" in source
+    assert "group=node_type" not in source
+    assert "nodeStore[nodeId].nodeType" in explorer
+    assert '"highlight": {"background": background, "border": "#1d4ed8"}' in source
+
+
+def test_graph_mastery_relations_preserve_progressive_hierarchy() -> None:
+    roots, parents, children = interactive_graph._expansion_structure(
+        [
+            {"id": "student:1", "type": "student"},
+            {"id": "subject:db", "type": "subject"},
+            {"id": "criterion:where", "type": "criterion"},
+        ],
+        [
+            {
+                "source": "student:1",
+                "target": "subject:db",
+                "relation": "subject_understands",
+            },
+            {
+                "source": "subject:db",
+                "target": "criterion:where",
+                "relation": "criterion_mastered",
+            },
+        ],
     )
-    assert "<strong>" not in tooltip
-    assert "<br>" not in tooltip
+
+    assert roots == ["student:1"]
+    assert parents == {
+        "subject:db": "student:1",
+        "criterion:where": "subject:db",
+    }
+    assert children["student:1"] == ["subject:db"]
+
+
+def test_learning_path_graph_starts_with_only_subject_roots(monkeypatch) -> None:
+    captured = []
+    monkeypatch.setattr(
+        interactive_graph.st,
+        "iframe",
+        lambda document, **options: captured.append((document, options)),
+    )
+
+    interactive_graph.render_interactive_graph(
+        [
+            {"id": "subject:db", "label": "Database Systems", "type": "subject"},
+            {"id": "path:db:index", "label": "1. Apply B-tree index", "type": "path"},
+            {"id": "path:db:join", "label": "2. Apply SQL join", "type": "path"},
+            {"id": "subject:network", "label": "Computer Networks", "type": "subject"},
+            {"id": "path:network:qos", "label": "1. Apply QoS policy", "type": "path"},
+        ],
+        [
+            {
+                "source": "subject:db",
+                "target": "path:db:index",
+                "relation": "has learning step",
+            },
+            {
+                "source": "path:db:index",
+                "target": "path:db:join",
+                "relation": "recommended next",
+            },
+            {
+                "source": "subject:network",
+                "target": "path:network:qos",
+                "relation": "has learning step",
+            },
+        ],
+        key="subject-roots-test",
+        height=300,
+        expand_roots_initially=False,
+    )
+
+    document, _ = captured[0]
+    assert '"rootNodeIds": ["subject:db", "subject:network"]' in document
+    assert '"initialExpanded": []' in document
+    assert '"path:db:index": "subject:db"' in document
+    assert '"path:db:join": "path:db:index"' in document
+    assert '"path:network:qos": "subject:network"' in document
 
 
 def test_graph_and_navigation_buttons_do_not_break_words() -> None:
@@ -142,6 +234,15 @@ def test_graph_and_navigation_buttons_do_not_break_words() -> None:
     assert "word-break: normal" in app_styles
     assert "identity = st.columns" in navigation
     assert "columns = st.columns([1] * len(navigation)" in navigation
+
+
+def test_admin_model_options_follow_the_selected_provider() -> None:
+    assert admin_config._available_models(
+        "gemini", "~deepseek/deepseek-v4-flash-latest"
+    ) == ["gemini-3.1-flash-lite"]
+    assert admin_config._available_models(
+        "openrouter", "gemini-3.1-flash-lite"
+    ) == ["~deepseek/deepseek-v4-flash-latest"]
 
 
 def test_result_feedback_displays_question_stem() -> None:
@@ -180,3 +281,101 @@ def test_llm_page_is_staff_only() -> None:
     taker_block = source.split('"exam_taker":', 1)[1].split('"supervisor":', 1)[0]
     assert "llm_generation" not in taker_block
     assert source.count('"llm_generation"') == 2
+
+
+def test_taker_has_profile_radar_chat_and_placement_workflows() -> None:
+    dashboard = (ROOT / "frontend" / "pages" / "taker_dashboard.py").read_text()
+    radar = (ROOT / "frontend" / "components" / "radar_chart.py").read_text()
+    subjects = (ROOT / "frontend" / "pages" / "subjects.py").read_text()
+    state = (ROOT / "frontend" / "state.py").read_text()
+
+    assert "render_criterion_radar" in dashboard
+    assert 'st.subheader("Overview")' in dashboard
+    assert 'options=["OVERALL"' in dashboard
+    assert "Expected achievement" in (
+        ROOT / "frontend" / "components" / "profile_table.py"
+    ).read_text()
+    assert "render_criterion_profile_table" in dashboard
+    assert "st.iframe(document" in radar
+    assert "st.html(document" not in radar
+    assert '"placement"' in subjects
+    assert "start_placement" in subjects
+    assert '"learner_chat"' in state
+    assert 'class="path-step"' not in dashboard
+
+
+def test_profile_table_uses_radar_mastery_and_full_text_hover(monkeypatch) -> None:
+    captured = []
+    monkeypatch.setattr(
+        profile_table.st,
+        "iframe",
+        lambda document, **options: captured.append((document, options)),
+    )
+    profile_table.render_criterion_profile_table(
+        [
+            {
+                "criterion_code": "INDEX",
+                "criterion_name": "Apply a composite database index",
+                "success_statement": "Choose and justify a suitable composite index.",
+                "understanding_label": "Developing",
+                "mastery_probability": 0.8,
+                "evidence_count": 6,
+                "evidence_confidence": "Moderate",
+                "trend": "stable",
+            }
+        ],
+        [{"criterion_code": "INDEX", "value_percent": 29.25}],
+    )
+
+    document, options = captured[0]
+    assert "29.2%" in document
+    assert ">Mastery<" in document
+    assert ">Evidence<" not in document
+    assert ">Confidence<" not in document
+    assert 'title="Apply a composite database index"' in document
+    assert 'title="Choose and justify a suitable composite index."' in document
+    assert options["width"] == "stretch"
+
+
+def test_radar_has_full_text_hover_tooltip() -> None:
+    source = (ROOT / "frontend" / "components" / "radar_chart.py").read_text()
+
+    assert "data-radar-tooltip" in source
+    assert 'element.addEventListener("mouseenter"' in source
+    assert "evidence_confidence" not in source
+    assert "confidence" not in source.lower()
+
+
+def test_learning_paths_are_rendered_per_subject() -> None:
+    source = (ROOT / "frontend" / "pages" / "taker_dashboard.py").read_text()
+
+    assert "grouped_paths" in source
+    assert "Mastered criteria are omitted" in source
+    assert 'key="taker_learning_paths_by_subject"' in source
+    assert '"type": "subject"' in source
+    assert '"relation": "has learning step"' in source
+    assert '"relation": "recommended next"' in source
+    assert '"display_label": "Start here"' in source
+    assert '"display_label": "Next step"' in source
+    assert "zip(criterion_nodes, criterion_nodes[1:])" in source
+    assert "expand_roots_initially=False" in source
+
+
+def test_taker_feedback_hides_provider_errors_and_model_details() -> None:
+    component = (ROOT / "frontend" / "components" / "llm_explanation.py").read_text()
+
+    assert "generated directly from scored evidence" in component
+    assert "elif technical" in component
+
+
+def test_learner_chat_has_natural_retrieval_without_debug_context_controls() -> None:
+    page = (ROOT / "frontend" / "pages" / "learner_chat.py").read_text()
+
+    assert "finds relevant information" in page
+    assert "Evidence used" not in page
+    assert "Optional answer context" not in page
+    assert "Completed session ID" not in page
+    assert "Deterministic fallback" not in page
+    assert "Delete chat history" in page
+    assert "Confirm deletion" in page
+    assert "delete_chat_thread" in page

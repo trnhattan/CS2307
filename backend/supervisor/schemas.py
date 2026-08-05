@@ -20,6 +20,7 @@ class SessionAnalytics(BaseModel):
     subject_name: str
     status: str
     mode: str
+    assessment_purpose: str
     question_count: int
     answered_count: int
     total_score: float

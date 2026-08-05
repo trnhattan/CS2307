@@ -22,9 +22,16 @@ class Settings:
     max_import_lines: int
     auth_secret: str
     auth_token_ttl_minutes: int
-    llm_base_url: str
-    llm_api_key: str | None
+    openrouter_base_url: str
+    openrouter_api_key: str | None
+    openrouter_http_referer: str | None
+    openrouter_app_title: str | None
+    gemini_base_url: str
+    gemini_api_key: str | None
+    gemini_thinking_level: str
     llm_timeout_seconds: float
+    mcp_issuer_url: str
+    mcp_public_url: str
 
 
 @lru_cache
@@ -55,7 +62,23 @@ def get_settings() -> Settings:
             "cs2307-local-development-secret-change-before-deployment",
         ),
         auth_token_ttl_minutes=int(os.getenv("AUTH_TOKEN_TTL_MINUTES", "480")),
-        llm_base_url=os.getenv("LLM_BASE_URL", "https://llm.vlai.space/v1").rstrip("/"),
-        llm_api_key=os.getenv("LLM_API_KEY") or None,
+        openrouter_base_url=os.getenv(
+            "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+        ).rstrip("/"),
+        openrouter_api_key=os.getenv("OPENROUTER_API_KEY") or None,
+        openrouter_http_referer=os.getenv("OPENROUTER_HTTP_REFERER") or None,
+        openrouter_app_title=os.getenv("OPENROUTER_APP_TITLE") or None,
+        gemini_base_url=os.getenv(
+            "GEMINI_BASE_URL",
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+        ).rstrip("/"),
+        gemini_api_key=os.getenv("GEMINI_API_KEY") or None,
+        gemini_thinking_level=os.getenv("GEMINI_THINKING_LEVEL", "low").strip().lower(),
         llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "120")),
+        mcp_issuer_url=os.getenv(
+            "MCP_ISSUER_URL", "http://localhost:8000"
+        ).rstrip("/"),
+        mcp_public_url=os.getenv(
+            "MCP_PUBLIC_URL", "http://localhost:8000/mcp"
+        ).rstrip("/"),
     )

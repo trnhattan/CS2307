@@ -37,6 +37,8 @@ class LearningPathStep(BaseModel):
     unit_name: str
     unit_type: str
     accuracy_percent: float | None
+    mastery_percent: float | None = None
+    understanding_label: str | None = None
     evidence_count: int
     action: str
     explanation: str

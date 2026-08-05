@@ -11,9 +11,17 @@ The application combines:
 - IRT 3PL and EAP for ability estimation.
 - CAT for adaptive question selection and stopping.
 - NetworkX and PyVis/vis-network for interactive knowledge and learning graphs.
-- An OpenAI-compatible LLM for reviewed question drafts and grounded Vietnamese explanations.
+- OpenRouter and Gemini 3.1 Flash-Lite for reviewed question drafts and grounded Vietnamese explanations.
 
 The visible application interface is English. The intentionally Vietnamese output is the on-demand LLM learning or technical explanation.
+
+For the criterion model, learner-state history, placement assessment, grounded chat,
+learner graph, radar chart, and step-by-step acceptance tests, see
+[`learner_model_testing.md`](learner_model_testing.md).
+
+For the requirement-driven seven-minute demonstration order, speaker script, UI clicks,
+expected results, and failure-safe alternatives, see
+[`presentation_scenario_7_minutes.md`](presentation_scenario_7_minutes.md).
 
 ## 1. Current implementation status
 
@@ -112,7 +120,7 @@ cp .env.example .env
 ./docker/setup.sh
 ```
 
-At minimum, replace `AUTH_SECRET` and review the database password in `.env`. To enable the optional LLM workflows, also set `LLM_API_KEY`.
+At minimum, replace `AUTH_SECRET` and review the database password in `.env`. To enable the optional LLM workflows, set either `OPENROUTER_API_KEY` or `GEMINI_API_KEY`.
 
 Important Docker-facing values are:
 
@@ -131,13 +139,31 @@ POSTGRES_PASSWORD=postgres
 
 AUTH_SECRET=replace-with-a-long-random-secret
 
-LLM_BASE_URL=https://llm.domain.host/v1
-LLM_API_KEY=replace-with-your-provider-key
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_API_KEY=replace-with-your-openrouter-key
+OPENROUTER_HTTP_REFERER=http://localhost:8501
+OPENROUTER_APP_TITLE=CS2307 Adaptive Exam
+
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+GEMINI_API_KEY=replace-with-your-gemini-key
+GEMINI_THINKING_LEVEL=low
+MCP_ISSUER_URL=http://localhost:8000
+MCP_PUBLIC_URL=http://localhost:8000/mcp
 ```
+
+The administrator selects the provider and model centrally in Configuration. The values
+are stored as `sys_props.LLM_PROVIDER` (`openrouter` or `gemini`) and `LLM_MODEL`.
+Choose `gemini` with `gemini-3.1-flash-lite`, or choose `openrouter` with an OpenRouter
+model slug such as `~deepseek/deepseek-v4-flash-latest`. This same selection is used by
+taker learning chat and feedback, supervisor LLM drafting and explanations, and the
+administrator workspace. Restart the backend only after changing `.env` credentials or
+endpoints.
 
 `BACKEND_PORT`, `FRONTEND_PORT`, `POSTGRES_PORT`, and `CLOUDBEAVER_PORT` are host ports. Compose always uses `backend:8000` and `postgres:5432` between containers, so keep the internal service overrides in `docker/docker-compose.yaml` unchanged.
 
 Never commit `.env`. Deployment locations, credentials, endpoints, and timeouts belong in `.env`. Exam behavior remains centrally managed in PostgreSQL `sys_props`.
+
+The backend exposes the authenticated learner knowledge tools through Streamable HTTP MCP at `MCP_PUBLIC_URL`. It accepts the same exam-taker bearer token as the REST API. The Learning Assistant invokes the same tools internally for learner profile, completed-test history, completed-question review, and subject-knowledge retrieval.
 
 ### 4.3 Choose an image source
 
@@ -317,8 +343,21 @@ Do not run `uvicorn main:app`; the application module is `backend.main:app`. The
 | Supervisor | `supervisor` | `supervisor` | Taker overview |
 | Exam taker 1 | `taker1` | `taker1` | Progress |
 | Exam taker 2 | `taker2` | `taker2` | Progress |
+| Growth demo taker | `demo_taker` | `demo_taker` | Progress |
 
 These are local demonstration credentials. Change them outside coursework testing.
+
+Create the realistic growth profile after the operational question bank is available:
+
+```bash
+python -m scripts.seed_demo_learner --show-credentials
+```
+
+The command is idempotent. It creates Alex Nguyen with five Database Systems results
+(`65% → 75% → 85% → 90% → 95%`) and three Computer Networks results
+(`45% → 55% → 65%`). Every session uses one distinct active question per assessment
+criterion and passes through the normal IRT, snapshot, and inference pipeline. Use
+`--replace` only when intentionally upgrading an older deterministic demo profile.
 
 ## 6. Knowledge-engineering model
 
@@ -791,7 +830,7 @@ Expected:
 
 ### UI-12 — LLM draft generation as supervisor
 
-Precondition: `LLM_API_KEY` is configured and `LLM_ENABLED` is true in `sys_props`.
+Precondition: `OPENROUTER_API_KEY` is configured and `LLM_ENABLED` is true in `sys_props`.
 
 Steps:
 
@@ -1066,8 +1105,8 @@ Pull or rebuild the current frontend image, recreate the frontend container, and
 
 Check:
 
-- `LLM_API_KEY` exists in `.env`.
-- `LLM_BASE_URL` points to the provider's `/v1` base.
+- `OPENROUTER_API_KEY` contains an active OpenRouter key in `.env`.
+- `OPENROUTER_BASE_URL` is `https://openrouter.ai/api/v1` without Markdown link syntax or query parameters.
 - `LLM_ENABLED` is true in `sys_props`.
 - Containers were recreated after changing `.env`.
 

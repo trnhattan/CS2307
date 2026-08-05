@@ -37,6 +37,7 @@ class SupervisorRepository:
                     subject.subject_name,
                     exam.status,
                     exam.mode,
+                    exam.assessment_purpose,
                     COUNT(item.exam_item_id) AS question_count,
                     COUNT(item.exam_item_id) FILTER (
                         WHERE item.answered_at IS NOT NULL

@@ -37,6 +37,7 @@ class CATConfig:
     weak_unit_weight: float
     content_balance_weight: float
     exposure_penalty: float
+    criterion_coverage_weight: float
     difficulty_distribution: dict[str, float]
     display_option_count: int
     randomize_options: bool
@@ -119,6 +120,7 @@ class CATService:
                 "weak_unit_weight": config.weak_unit_weight,
                 "content_balance_weight": config.content_balance_weight,
                 "exposure_penalty": config.exposure_penalty,
+                "criterion_coverage_weight": config.criterion_coverage_weight,
                 "difficulty_distribution": config.difficulty_distribution,
                 "display_option_count": config.display_option_count,
                 "randomize_options": config.randomize_options,
@@ -346,17 +348,22 @@ class CATService:
         config: CATConfig,
     ) -> CATSelection:
         mastery = await self.repository.unit_mastery(session, student_id, subject_id)
+        criterion_evidence = await self.repository.criterion_evidence(
+            session, student_id, subject_id
+        )
         usage = await self.repository.difficulty_usage(session, session_id)
         selected = select_next_question(
             [self._candidate(row) for row in rows],
             theta=theta,
             unit_mastery=mastery,
+            criterion_evidence=criterion_evidence,
             difficulty_usage=usage,
             target_distribution=config.difficulty_distribution,
             information_weight=config.information_weight,
             weak_unit_weight=config.weak_unit_weight,
             content_balance_weight=config.content_balance_weight,
             exposure_penalty=config.exposure_penalty,
+            criterion_coverage_weight=config.criterion_coverage_weight,
             scale=config.scale,
         )
         if selected is None:
@@ -483,6 +490,12 @@ class CATService:
             weak_unit_weight=float(values.get("weak_unit_weight", values.get("CAT_WEAK_UNIT_WEIGHT", 0.35))),
             content_balance_weight=float(values.get("content_balance_weight", values.get("CAT_CONTENT_BALANCE_WEIGHT", 0.2))),
             exposure_penalty=float(values.get("exposure_penalty", values.get("CAT_EXPOSURE_PENALTY", 0.15))),
+            criterion_coverage_weight=float(
+                values.get(
+                    "criterion_coverage_weight",
+                    values.get("CAT_CRITERION_COVERAGE_WEIGHT", 0.3),
+                )
+            ),
             difficulty_distribution={
                 key: float(value)
                 for key, value in values.get(

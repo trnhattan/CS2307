@@ -71,6 +71,7 @@ def render_assessment_dashboard(
                 "Exam taker": item["student_name"],
                 "Subject": item["subject_name"],
                 "Status": item["status"],
+                "Purpose": item.get("assessment_purpose", "practice").title(),
                 "Answered": f"{item['answered_count']}/{item['question_count']}",
                 "Score": f"{item['score_percent']:.1f}%",
                 "Theta": round(item["theta_current"], 3),

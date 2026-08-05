@@ -228,6 +228,8 @@ docs/*
 !docs/evaluation_report.md
 !docs/README.md
 !docs/knowledge_representation_and_algorithms.md
+!docs/learner_model_testing.md
+!docs/presentation_scenario_7_minutes.md
 
 .DS_Store
 
@@ -245,7 +247,10 @@ scripts/*
 !scripts/adaptive_exam_schema_optimized.sql
 !scripts/migrate_mandatory_non_llm.sql
 !scripts/migrate_calibration_and_english.sql
+!scripts/migrate_learner_model.sql
+!scripts/migrate_openrouter.sql
 !scripts/seed_english_question_bank.py
+!scripts/seed_demo_learner.py
 !scripts/evaluate_cat.py
 !scripts/smoke_auth_roles.py
 !scripts/smoke_exam_flow.py
@@ -261,3 +266,5 @@ data/seeds/*
 !data/seeds/students.jsonl
 !data/db_snapshots/
 !data/db_snapshots/cs2307.dump
+
+.agents/state

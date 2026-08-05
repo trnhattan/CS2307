@@ -105,7 +105,8 @@ VALUES
     ('LEARNING_REMEDIATE_THRESHOLD', '0.5'::JSONB, 'Ngưỡng đề xuất ôn nền.', TRUE),
     ('LEARNING_ADVANCE_THRESHOLD', '0.75'::JSONB, 'Ngưỡng đề xuất bài nâng cao.', TRUE)
     ,('LLM_ENABLED', 'true'::JSONB, 'Cho phép các thao tác LLM theo yêu cầu rõ ràng của người dùng.', TRUE)
-    ,('LLM_MODEL', '"qwen3.5-4b"'::JSONB, 'Tên model OpenAI-compatible; khóa API chỉ nằm trong biến môi trường.', TRUE)
+    ,('LLM_MODEL', '"~deepseek/deepseek-v4-flash-latest"'::JSONB, 'OpenRouter model slug; the API key remains in the environment.', TRUE)
+    ,('LLM_REASONING_ENABLED', 'true'::JSONB, 'Request OpenRouter reasoning for LLM operations.', TRUE)
     ,('LLM_QUESTION_MAX_TOKENS', '1600'::JSONB, 'Ngân sách token đầu ra tối đa cho một bản nháp câu hỏi.', TRUE)
     ,('LLM_EXPLANATION_MAX_TOKENS', '350'::JSONB, 'Ngân sách token đầu ra tối đa cho một diễn giải phiên thi.', TRUE)
     ,('LLM_MAX_SOURCE_CHARS', '6000'::JSONB, 'Số ký tự nguồn tối đa gửi trong một yêu cầu LLM.', TRUE)

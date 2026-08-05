@@ -3,6 +3,8 @@ import streamlit as st
 from frontend.api_client import APIClientError, ExamAPIClient
 from frontend.components.header import render_header
 from frontend.components.interactive_graph import render_interactive_graph
+from frontend.components.profile_table import render_criterion_profile_table
+from frontend.components.radar_chart import render_criterion_radar
 from frontend.state import go
 
 
@@ -45,54 +47,176 @@ def render(client: ExamAPIClient) -> None:
         hide_index=True,
     )
 
+    st.subheader("Overview")
+    try:
+        profile = client.taker_profile()
+    except APIClientError as error:
+        st.warning(f"Criterion profile is temporarily unavailable: {error}")
+        profile = {"subjects": []}
+    profile_subjects = profile.get("subjects") or []
+    if not profile_subjects:
+        st.info("No assessment criteria are available yet.")
+    else:
+        selected_subject = st.selectbox(
+            "Radar view",
+            options=["OVERALL", *[item["subject_code"] for item in profile_subjects]],
+            format_func=lambda code: next(
+                (
+                    "Overall"
+                    if code == "OVERALL"
+                    else item["subject_name"]
+                    for item in profile_subjects
+                    if code == "OVERALL" or item["subject_code"] == code
+                )
+            ),
+        )
+        radar = None
+        try:
+            radar = client.taker_radar(selected_subject)
+        except APIClientError as error:
+            st.warning(f"Criterion radar is temporarily unavailable: {error}")
+        if selected_subject == "OVERALL":
+            overview = st.columns(4)
+            overview[0].metric("Assessed subjects", len(profile_subjects))
+            overview[1].metric(
+                "Mastered criteria",
+                sum(len(item["strengths"]) for item in profile_subjects),
+            )
+            overview[2].metric(
+                "Improved criteria",
+                sum(len(item["improved"]) for item in profile_subjects),
+            )
+            overview[3].metric(
+                "Needs attention",
+                sum(len(item["weaknesses"]) for item in profile_subjects),
+            )
+            if radar:
+                render_criterion_radar(radar)
+            st.dataframe(
+                [
+                    {
+                        "Subject": item["subject_name"],
+                        "Mastered criteria": len(item["strengths"]),
+                        "Improved criteria": len(item["improved"]),
+                        "Needs attention": len(item["weaknesses"]),
+                        "Not assessed": len(item["insufficient_evidence"]),
+                    }
+                    for item in profile_subjects
+                ],
+                width="stretch",
+                hide_index=True,
+            )
+        else:
+            selected_profile = next(
+                item for item in profile_subjects
+                if item["subject_code"] == selected_subject
+            )
+            overview = st.columns(4)
+            overview[0].metric("Strengths", len(selected_profile["strengths"]))
+            overview[1].metric("Needs attention", len(selected_profile["weaknesses"]))
+            overview[2].metric("Improved", len(selected_profile["improved"]))
+            overview[3].metric(
+                "Not assessed", len(selected_profile["insufficient_evidence"])
+            )
+            if radar:
+                render_criterion_radar(radar)
+            render_criterion_profile_table(
+                selected_profile["criteria"],
+                (radar or {}).get("axes", []),
+            )
+
     st.subheader("Recommended learning path")
     learning_path = payload["learning_path"]
     if not learning_path:
         st.info("Complete a test to build your evidence-based learning path.")
     else:
-        path_nodes = [
-            {
-                "id": f"path:{step['priority']}",
-                "label": f"{step['priority']}. {step['unit_name']}",
-                "type": "path",
-                "attributes": {
-                    "subject": step["subject_name"],
-                    "action": step["action"],
-                    "accuracy_percent": step["accuracy_percent"],
-                    "evidence_count": step["evidence_count"],
-                },
-            }
-            for step in learning_path
-        ]
-        path_edges = [
-            {
-                "source": path_nodes[index]["id"],
-                "target": path_nodes[index + 1]["id"],
-                "relation": "recommended next",
-                "provenance": {"source": "Rela-model learning rules"},
-            }
-            for index in range(len(path_nodes) - 1)
-        ]
         st.caption(
-            "Double-click a learning step to expand or collapse the next recommendation."
+            "Each subject is ordered from the lowest current criterion mastery through "
+            "the Understands level. Mastered criteria are omitted."
         )
-        render_interactive_graph(path_nodes, path_edges, key="taker_learning_path", height=380)
-    for step in learning_path:
-        evidence = (
-            f"Accuracy {step['accuracy_percent']:.1f}% · "
-            f"{step['evidence_count']} questions"
-            if step["accuracy_percent"] is not None
-            else "No response evidence yet"
-        )
-        st.markdown(
-            f"""
-            <div class="path-step">
-              <strong>{step['priority']}. {step['unit_name']}</strong>
-              <div>{step['action']}</div>
-              <small>{step['subject_name']} · {evidence}</small>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        grouped_paths: dict[str, list[dict]] = {}
+        for step in learning_path:
+            grouped_paths.setdefault(step["subject_code"], []).append(step)
+        path_nodes = []
+        path_edges = []
+        for subject_code, subject_steps in grouped_paths.items():
+            subject_steps.sort(
+                key=lambda step: (
+                    step.get("mastery_percent") is not None,
+                    (
+                        step.get("mastery_percent")
+                        if step.get("mastery_percent") is not None
+                        else -1
+                    ),
+                    -int(step.get("evidence_count") or 0),
+                    step["unit_name"],
+                )
+            )
+            subject_node_id = f"path-subject:{subject_code}"
+            path_nodes.append(
+                {
+                    "id": subject_node_id,
+                    "label": subject_steps[0]["subject_name"],
+                    "type": "subject",
+                    "attributes": {
+                        "criteria_to_improve": len(subject_steps),
+                        "lowest_mastery": (
+                            f"{subject_steps[0].get('mastery_percent'):.1f}%"
+                            if subject_steps[0].get("mastery_percent") is not None
+                            else "Not assessed"
+                        ),
+                    },
+                }
+            )
+            criterion_nodes = []
+            for index, step in enumerate(subject_steps, 1):
+                criterion_nodes.append(
+                    {
+                        "id": f"path:{subject_code}:{step['unit_code'] or index}",
+                        "label": f"{index}. {step['unit_name']}",
+                        "type": "path",
+                        "attributes": {
+                            "mastery": (
+                                f"{step.get('mastery_percent'):.1f}%"
+                                if step.get("mastery_percent") is not None
+                                else "Not assessed"
+                            ),
+                            "understanding": step.get("understanding_label"),
+                            "action": step["action"],
+                        },
+                    }
+                )
+            path_nodes.extend(criterion_nodes)
+            if criterion_nodes:
+                path_edges.append(
+                    {
+                        "source": subject_node_id,
+                        "target": criterion_nodes[0]["id"],
+                        "relation": "has learning step",
+                        "display_label": "Start here",
+                        "provenance": {
+                            "source": "Rela-model criterion mastery rules",
+                        },
+                    }
+                )
+            path_edges.extend(
+                {
+                    "source": previous["id"],
+                    "target": current["id"],
+                    "relation": "recommended next",
+                    "display_label": "Next step",
+                    "provenance": {
+                        "source": "Rela-model criterion mastery rules",
+                    },
+                }
+                for previous, current in zip(criterion_nodes, criterion_nodes[1:])
+            )
+        render_interactive_graph(
+            path_nodes,
+            path_edges,
+            key="taker_learning_paths_by_subject",
+            height=520,
+            expand_roots_initially=False,
         )
 
     st.subheader("Recent history")

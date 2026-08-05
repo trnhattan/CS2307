@@ -23,229 +23,212 @@ class KnowledgeGraphService:
             student = await self.repository.student(session, student_id)
             if student is None:
                 return None
-            abilities = await self.repository.abilities(session, student_id)
+            subjects = await self.repository.subjects(session, student_id)
+            criteria = await self.repository.criteria(session, student_id)
             attempts = await self.repository.attempts(session, student_id)
-            recommendations = await self.repository.recommendations(
-                session, student["student_code"]
-            )
+            config = await self.repository.config(session)
+
+        minimum_tests = int(config.get("PROFILE_GRAPH_MIN_TESTS", 3))
+        needs_review = float(config.get("PROFILE_NEEDS_REVIEW_THRESHOLD", 0.45))
+        developing = float(config.get("PROFILE_DEVELOPING_THRESHOLD", 0.60))
+        mastered = float(config.get("PROFILE_MASTERY_THRESHOLD", 0.75))
 
         student_node = f"student:{student['student_code']}"
-        student_label = self._english_label(
-            student["display_name"],
-            self._humanize_identifier(student["student_code"], "Exam taker"),
-        )
         nodes: dict[str, GraphNode] = {
             student_node: GraphNode(
                 id=student_node,
-                label=student_label,
+                label=self._english_label(
+                    student["display_name"],
+                    self._humanize_identifier(student["student_code"], "Exam taker"),
+                ),
                 type="student",
             )
         }
         edges: dict[tuple[str, str, str], GraphEdge] = {}
-        unit_labels: dict[str, str] = {}
-        for ability in abilities:
-            subject_node = f"subject:{ability['subject_code']}"
-            subject_label = self._subject_label(
-                ability["subject_code"], ability["subject_name"]
-            )
-            nodes.setdefault(
-                subject_node,
-                GraphNode(
-                    id=subject_node,
-                    label=subject_label,
-                    type="subject",
-                ),
-            )
-            target = subject_node
-            if ability["unit_code"]:
-                target = f"unit:{ability['subject_code']}:{ability['unit_code']}"
-                unit_label = self._english_label(
-                    ability["unit_name"],
-                    self._humanize_identifier(ability["unit_code"], "Knowledge area"),
-                )
-                unit_labels[ability["unit_code"]] = unit_label
-                attributes = {
-                    "knowledge_type": str(ability["unit_type"]).title(),
-                    "understanding": self._mastery_label(ability["mastery_probability"]),
-                    "evidence_count": ability["evidence_count"],
-                }
-                if technical:
-                    attributes.update(
-                        {
-                            "theta": float(ability["theta"]),
-                            "standard_error": float(ability["standard_error"]),
-                            "mastery_probability": (
-                                float(ability["mastery_probability"])
-                                if ability["mastery_probability"] is not None
-                                else None
-                            ),
-                        }
-                    )
-                nodes[target] = GraphNode(
-                    id=target,
-                    label=unit_label,
-                    type=ability["unit_type"],
-                    attributes=attributes,
-                )
-                self._edge(
-                    edges,
-                    target,
-                    subject_node,
-                    "belongs_to_subject",
-                    {"source": "Course knowledge structure"},
-                )
-                if ability["parent_code"]:
-                    parent = f"unit:{ability['subject_code']}:{ability['parent_code']}"
-                    parent_label = self._english_label(
-                        ability["parent_name"],
-                        self._humanize_identifier(
-                            ability["parent_code"], "Knowledge area"
-                        ),
-                    )
-                    unit_labels[ability["parent_code"]] = parent_label
-                    nodes.setdefault(
-                        parent,
-                        GraphNode(
-                            id=parent,
-                            label=parent_label,
-                            type=ability["parent_type"] or "topic",
-                        ),
-                    )
-                    self._edge(
-                        edges,
-                        parent,
-                        target,
-                        "prerequisite_of",
-                        {"source": "Course prerequisite structure"},
-                    )
-            attributes = {
-                "understanding": self._mastery_label(ability["mastery_probability"]),
-                "evidence_count": ability["evidence_count"],
-            }
-            if technical:
-                attributes.update(
-                    {
-                        "theta": float(ability["theta"]),
-                        "standard_error": float(ability["standard_error"]),
-                        "mastery_probability": (
-                            float(ability["mastery_probability"])
-                            if ability["mastery_probability"] is not None
-                            else None
-                        ),
-                    }
-                )
-            self._edge(edges, student_node, target, "has_ability", attributes)
+        subject_by_code = {subject["subject_code"]: subject for subject in subjects}
 
-        for attempt in attempts:
-            question_node = f"question:{attempt['question_code']}"
-            evidence_node = f"evidence:{attempt['exam_item_id']}"
-            result_label = "Correct" if attempt["is_correct"] else "Incorrect"
-            subject_label = self._subject_label(
-                attempt["subject_code"], attempt["subject_code"]
+        for subject in subjects:
+            subject_node = f"subject:{subject['subject_code']}"
+            completed_tests = int(subject.get("completed_tests") or 0)
+            subject_mastery = (
+                float(subject["mastery_probability"])
+                if subject.get("mastery_probability") is not None else None
             )
-            unit_label = next(
-                (
-                    unit_labels[unit_code]
-                    for unit_code in attempt["unit_codes"]
-                    if unit_code in unit_labels
+            relationship, display_label = self._mastery_relation(
+                subject_mastery,
+                evidence_count=int(subject.get("evidence_count") or 0),
+                completed_tests=completed_tests,
+                minimum_tests=minimum_tests,
+                needs_review=needs_review,
+                developing=developing,
+                mastered=mastered,
+                subject=True,
+            )
+            nodes[subject_node] = GraphNode(
+                id=subject_node,
+                label=self._subject_label(
+                    subject["subject_code"], subject["subject_name"]
                 ),
-                subject_label,
-            )
-            technical_question_label = self._english_label(
-                attempt["stem"], f"Archived question about {unit_label}"
-            )
-            question_label = (
-                technical_question_label
-                if technical
-                else f"Answered question about {unit_label}"
-            )
-            attributes = {"result": result_label}
-            if technical and not technical_question_label.startswith("Archived question about "):
-                attributes["question_text"] = technical_question_label
-            nodes.setdefault(
-                question_node,
-                GraphNode(
-                    id=question_node,
-                    label=question_label,
-                    type="question",
-                    attributes=attributes,
-                ),
-            )
-            evidence_attributes = {"result": result_label}
-            if technical:
-                evidence_attributes.update(
-                    {
-                        "answered_at": attempt["answered_at"].isoformat(),
-                    }
-                )
-            nodes[evidence_node] = GraphNode(
-                id=evidence_node,
-                label=f"{result_label} response",
-                type="evidence",
-                attributes=evidence_attributes,
+                type="subject",
+                attributes={
+                    "understanding": self._mastery_label(
+                        subject_mastery,
+                        int(subject.get("evidence_count") or 0),
+                        reliable=completed_tests >= minimum_tests,
+                        needs_review=needs_review,
+                        developing=developing,
+                        mastered=mastered,
+                    ),
+                    "completed_tests": completed_tests,
+                    "mastery_percent": (
+                        round(100 * subject_mastery, 1)
+                        if subject_mastery is not None else None
+                    ),
+                },
             )
             self._edge(
                 edges,
                 student_node,
-                evidence_node,
-                "produced_evidence",
-                {"source": "Completed test response"},
+                subject_node,
+                relationship,
+                {
+                    "relationship": "Learner subject understanding",
+                    "completed_tests": completed_tests,
+                    "mastery_percent": (
+                        round(100 * subject_mastery, 1)
+                        if subject_mastery is not None else None
+                    ),
+                },
+                display_label=display_label,
+            )
+
+        for criterion in criteria:
+            subject_node = f"subject:{criterion['subject_code']}"
+            criterion_node = (
+                f"criterion:{criterion['subject_code']}:{criterion['criterion_code']}"
+            )
+            mastery = (
+                float(criterion["mastery_probability"])
+                if criterion["mastery_probability"] is not None
+                else None
+            )
+            evidence_count = int(criterion["evidence_count"] or 0)
+            subject = subject_by_code[criterion["subject_code"]]
+            completed_tests = int(subject.get("completed_tests") or 0)
+            reliable = completed_tests >= minimum_tests and evidence_count >= minimum_tests
+            understanding = self._mastery_label(
+                mastery,
+                evidence_count,
+                reliable=reliable,
+                needs_review=needs_review,
+                developing=developing,
+                mastered=mastered,
+            )
+            relationship, display_label = self._mastery_relation(
+                mastery,
+                evidence_count=evidence_count,
+                completed_tests=completed_tests,
+                minimum_tests=minimum_tests,
+                needs_review=needs_review,
+                developing=developing,
+                mastered=mastered,
+                subject=False,
+            )
+            attributes = {
+                "learning_objective": criterion["learning_objective"],
+                "success_statement": criterion["success_statement"],
+                "understanding": understanding,
+                "evidence_count": evidence_count,
+                "accuracy_percent": (
+                    float(criterion["accuracy_percent"])
+                    if criterion["accuracy_percent"] is not None
+                    else None
+                ),
+            }
+            if technical:
+                attributes.update(
+                    {
+                        "theta": (
+                            float(criterion["theta"])
+                            if criterion["theta"] is not None
+                            else None
+                        ),
+                        "standard_error": (
+                            float(criterion["standard_error"])
+                            if criterion["standard_error"] is not None
+                            else None
+                        ),
+                        "mastery_probability": mastery,
+                    }
+                )
+            nodes[criterion_node] = GraphNode(
+                id=criterion_node,
+                label=self._english_label(
+                    criterion["criterion_name"],
+                    self._humanize_identifier(
+                        criterion["criterion_code"], "Assessment criterion"
+                    ),
+                ),
+                type="criterion",
+                attributes=attributes,
             )
             self._edge(
                 edges,
-                evidence_node,
-                question_node,
-                "answers",
-                {"correct": bool(attempt["is_correct"])},
+                subject_node,
+                criterion_node,
+                relationship,
+                {
+                    "understanding": understanding,
+                    "evidence_count": evidence_count,
+                    "mastery_percent": (
+                        round(100 * mastery, 1) if mastery is not None else None
+                    ),
+                },
+                display_label=display_label,
             )
-            for unit_code in attempt["unit_codes"]:
-                unit_node = f"unit:{attempt['subject_code']}:{unit_code}"
-                if unit_node in nodes:
-                    self._edge(
-                        edges,
-                        question_node,
-                        unit_node,
-                        "measures",
-                        {"source": "Question knowledge mapping"},
-                    )
-                    self._edge(
-                        edges,
-                        evidence_node,
-                        unit_node,
-                        "supports_ability",
-                        {"source": "Completed test response"},
-                    )
 
-        unit_nodes = {
-            node.id.rsplit(":", 1)[-1]: node.id
-            for node in nodes.values()
-            if node.type in {"topic", "skill"}
-        }
-        action_labels = {
-            "remediate": "Review foundational knowledge",
-            "reinforce": "Complete reinforcement practice",
-            "advance": "Continue to advanced application",
-            "initial_assessment": "Complete the first assessment",
-        }
-        for recommendation in recommendations:
-            target = unit_nodes.get(recommendation["unit_code"])
-            if target is None:
+        for attempt in attempts:
+            criterion_nodes = [
+                f"criterion:{attempt['subject_code']}:{criterion_code}"
+                for criterion_code in attempt["criterion_codes"]
+                if f"criterion:{attempt['subject_code']}:{criterion_code}" in nodes
+            ]
+            if not criterion_nodes:
                 continue
-            provenance = {
-                "recommendation": action_labels.get(
-                    recommendation["action"], recommendation["action"]
-                )
+            question_node = f"question:{attempt['exam_item_id']}"
+            result_label = "Correct" if attempt["is_correct"] else "Incorrect"
+            question_text = self._english_label(
+                attempt["stem"],
+                f"Answered question {attempt['question_code']}",
+            )
+            question_attributes = {
+                "question_text": question_text,
+                "question_code": attempt["question_code"],
+                "result": result_label,
+                "difficulty": str(attempt["difficulty_label"]).title(),
+                "answered_at": attempt["answered_at"].isoformat(),
             }
             if technical:
-                provenance.update(
+                question_attributes["bloom_level"] = str(
+                    attempt["bloom_level"]
+                ).title()
+            nodes[question_node] = GraphNode(
+                id=question_node,
+                label=question_text,
+                type="question",
+                attributes=question_attributes,
+            )
+            for criterion_node in criterion_nodes:
+                self._edge(
+                    edges,
+                    criterion_node,
+                    question_node,
+                    "answered_question",
                     {
-                        "reasoning_trace": recommendation["inference_trace_id"],
-                        "reasoning_rule": self._rule_label(
-                            recommendation["derived_by_rule_code"]
-                        ),
-                    }
+                        "answer_result": result_label,
+                        "difficulty": str(attempt["difficulty_label"]).title(),
+                    },
                 )
-            self._edge(edges, student_node, target, "recommended_next", provenance)
 
         return KnowledgeGraphResponse(
             student_id=student_id,
@@ -255,15 +238,55 @@ class KnowledgeGraphService:
         )
 
     @staticmethod
-    def _mastery_label(value) -> str:
-        if value is None:
-            return "Insufficient evidence"
-        probability = float(value)
-        if probability < 0.5:
+    def _mastery_label(
+        value: float | None,
+        evidence_count: int,
+        *,
+        reliable: bool = True,
+        needs_review: float = 0.45,
+        developing: float = 0.60,
+        mastered: float = 0.75,
+    ) -> str:
+        if value is None or evidence_count == 0:
+            return "Not assessed"
+        if not reliable:
+            return "Initial evidence"
+        if value < needs_review:
             return "Needs review"
-        if probability < 0.75:
-            return "Reinforcing"
+        if value < developing:
+            return "Developing"
+        if value < mastered:
+            return "Understands"
         return "Mastered"
+
+    @classmethod
+    def _mastery_relation(
+        cls,
+        value: float | None,
+        *,
+        evidence_count: int,
+        completed_tests: int,
+        minimum_tests: int,
+        needs_review: float,
+        developing: float,
+        mastered: float,
+        subject: bool,
+    ) -> tuple[str, str]:
+        if completed_tests < minimum_tests or evidence_count < minimum_tests or value is None:
+            return (
+                ("has_subject", "Has learning profile for")
+                if subject else ("has_criterion", "Requires understanding of")
+            )
+        percent = round(100 * value)
+        prefix = "subject" if subject else "criterion"
+        if value < needs_review:
+            return f"{prefix}_needs_review", f"Needs review · {percent}%"
+        if value < developing:
+            return f"{prefix}_developing", f"Developing · {percent}%"
+        if value < mastered:
+            return f"{prefix}_understands", f"Understands · {percent}%"
+        label = "Proficient" if subject else "Mastered"
+        return f"{prefix}_mastered", f"{label} · {percent}%"
 
     @staticmethod
     def _subject_label(subject_code: str, value: str | None) -> str:
@@ -274,7 +297,8 @@ class KnowledgeGraphService:
         return known.get(
             subject_code,
             KnowledgeGraphService._english_label(
-                value, KnowledgeGraphService._humanize_identifier(subject_code, "Subject")
+                value,
+                KnowledgeGraphService._humanize_identifier(subject_code, "Subject"),
             ),
         )
 
@@ -309,7 +333,9 @@ class KnowledgeGraphService:
     @staticmethod
     def _humanize_identifier(value: str | None, fallback: str) -> str:
         tokens = [token for token in re.split(r"[_\-]+", str(value or "")) if token]
-        while tokens and tokens[0].upper() in {"DB", "DATABASE", "NET", "NETWORK", "DBEN", "NETEN", "EN", "SK", "R"}:
+        while tokens and tokens[0].upper() in {
+            "DB", "DATABASE", "NET", "NETWORK", "DBEN", "NETEN", "EN", "SK", "R"
+        }:
             tokens.pop(0)
         acronyms = {
             "ACID", "ARP", "CIDR", "DDL", "DHCP", "DNS", "HTTPS", "ICMP",
@@ -327,31 +353,18 @@ class KnowledgeGraphService:
         return result[0].upper() + result[1:]
 
     @staticmethod
-    def _rule_label(rule_code: str | None) -> str:
-        labels = {
-            "R_LEARNING_START_SUBJECT": "Start with an initial subject assessment",
-            "R_LEARNING_REMEDIATE": "Review weak foundational knowledge",
-            "R_LEARNING_REINFORCE": "Reinforce developing knowledge",
-            "R_LEARNING_ADVANCE": "Advance mastered knowledge",
-        }
-        return labels.get(
-            str(rule_code or ""),
-            KnowledgeGraphService._humanize_identifier(
-                rule_code, "Learning recommendation rule"
-            ),
-        )
-
-    @staticmethod
     def _edge(
         edges: dict[tuple[str, str, str], GraphEdge],
         source: str,
         target: str,
         relation: str,
         provenance: dict,
+        display_label: str | None = None,
     ) -> None:
         edges[(source, target, relation)] = GraphEdge(
             source=source,
             target=target,
             relation=relation,
+            display_label=display_label,
             provenance=provenance,
         )

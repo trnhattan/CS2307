@@ -118,6 +118,62 @@ class ExamAPIClient:
     def taker_dashboard(self) -> dict[str, Any]:
         return self._request("GET", "/api/v1/taker/dashboard")
 
+    def taker_profile(self, subject_code: str | None = None) -> dict[str, Any]:
+        params = {"subject_code": subject_code} if subject_code else None
+        return self._request("GET", "/api/v1/taker/profile", params=params)
+
+    def taker_radar(self, subject_code: str) -> dict[str, Any]:
+        return self._request("GET", f"/api/v1/taker/radar/{subject_code}")
+
+    def criteria(self, subject_code: str) -> dict[str, Any]:
+        return self._request("GET", f"/api/v1/subjects/{subject_code}/criteria")
+
+    def placement_status(self) -> dict[str, Any]:
+        return self._request("GET", "/api/v1/placement/status")
+
+    def start_placement(self, subject_code: str) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/api/v1/placement/start",
+            json={"subject_code": subject_code},
+        )
+
+    def chat_threads(self) -> list[dict[str, Any]]:
+        return self._request("GET", "/api/v1/taker/chat/threads")
+
+    def create_chat_thread(
+        self, subject_code: str | None = None, title: str = "Learning assistant"
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/api/v1/taker/chat/threads",
+            json={"subject_code": subject_code, "title": title},
+        )
+
+    def chat_thread(self, thread_id: int) -> dict[str, Any]:
+        return self._request("GET", f"/api/v1/taker/chat/threads/{thread_id}")
+
+    def delete_chat_thread(self, thread_id: int) -> dict[str, Any]:
+        return self._request("DELETE", f"/api/v1/taker/chat/threads/{thread_id}")
+
+    def send_chat_message(
+        self,
+        thread_id: int,
+        message: str,
+        *,
+        session_id: int | None = None,
+        question_code: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/api/v1/taker/chat/threads/{thread_id}/messages",
+            json={
+                "message": message,
+                "session_id": session_id,
+                "question_code": question_code,
+            },
+        )
+
     def supervisor_dashboard(self) -> dict[str, Any]:
         return self._request("GET", "/api/v1/supervisor/dashboard")
 

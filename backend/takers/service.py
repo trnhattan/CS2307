@@ -37,7 +37,7 @@ class TakerService:
                 session,
                 user.student_id,
             )
-            evidence_rows = await self._repository.unit_evidence(
+            evidence_rows = await self._repository.criterion_mastery(
                 session,
                 user.student_id,
             )
@@ -91,11 +91,13 @@ class TakerService:
         result = engine.infer(
             [
                 Fact(
-                    "unit_accuracy",
-                    (student_code, row["unit_code"], float(row["accuracy_percent"]) / 100),
+                    "criterion_mastery",
+                    (student_code, row["unit_code"], float(row["mastery_probability"])),
                     source="response_history",
                 )
                 for row in evidence_rows
+                if row.get("mastery_probability") is not None
+                and int(row.get("evidence_count") or 0) > 0
             ]
         )
         recommendations = {
@@ -105,17 +107,26 @@ class TakerService:
         }
         actions = {
             "remediate": "Review prerequisite knowledge and complete foundational practice",
-            "reinforce": "Complete additional practice to strengthen retention",
-            "advance": "Continue with higher-level application tasks",
+            "develop": "Build understanding with guided examples and focused practice",
+            "reinforce": "Complete targeted practice to consolidate understanding",
         }
         steps: list[LearningPathStep] = []
         for row in evidence_rows:
-            accuracy = float(row["accuracy_percent"])
+            mastery = (
+                float(row["mastery_probability"])
+                if row.get("mastery_probability") is not None
+                and int(row.get("evidence_count") or 0) > 0
+                else None
+            )
+            mastery_threshold = float(row.get("mastery_threshold") or 0.75)
+            if mastery is None or mastery >= mastery_threshold:
+                continue
             recommendation = recommendations.get(
                 row["unit_code"],
-                "reinforce",
+                self._recommendation_for_mastery(mastery),
             )
             action = actions.get(recommendation, "Continue with the recommended learning path")
+            mastery_percent = round(mastery * 100, 2)
             steps.append(
                 LearningPathStep(
                     priority=0,
@@ -124,17 +135,24 @@ class TakerService:
                     unit_code=row["unit_code"],
                     unit_name=row["unit_name"],
                     unit_type=row["unit_type"],
-                    accuracy_percent=round(accuracy, 2),
+                    accuracy_percent=mastery_percent,
+                    mastery_percent=mastery_percent,
+                    understanding_label=self._criterion_understanding(mastery),
                     evidence_count=row["evidence_count"],
                     action=action,
                     explanation=(
-                        f"Based on {row['evidence_count']} answered questions, accuracy "
-                        f"for {row['unit_name']} is {accuracy:.1f}%."
+                        f"Current criterion mastery is {mastery_percent:.1f}% from "
+                        f"{row['evidence_count']} answered questions."
                     ),
                 )
             )
 
-        attempted_subjects = {row["subject_code"] for row in evidence_rows}
+        attempted_subjects = {
+            row["subject_code"]
+            for row in evidence_rows
+            if row.get("mastery_probability") is not None
+            and int(row.get("evidence_count") or 0) > 0
+        }
         for row in progress_rows:
             if row["subject_code"] in attempted_subjects:
                 continue
@@ -147,35 +165,55 @@ class TakerService:
                     unit_name=row["subject_name"],
                     unit_type="subject",
                     accuracy_percent=None,
+                    mastery_percent=None,
+                    understanding_label="Not assessed",
                     evidence_count=0,
                     action="Complete the first assessment",
                     explanation="No completed-response evidence exists for this subject.",
                 )
             )
 
-        steps.sort(
-            key=lambda step: (
-                step.accuracy_percent is not None,
-                step.accuracy_percent if step.accuracy_percent is not None else -1,
-                -step.evidence_count,
-                step.subject_name,
+        grouped: dict[str, list[LearningPathStep]] = {}
+        for step in steps:
+            grouped.setdefault(step.subject_code, []).append(step)
+        ordered: list[LearningPathStep] = []
+        for subject_code in sorted(
+            grouped,
+            key=lambda code: (grouped[code][0].subject_name, code),
+        ):
+            subject_steps = sorted(
+                grouped[subject_code],
+                key=lambda step: (
+                    step.mastery_percent is not None,
+                    step.mastery_percent if step.mastery_percent is not None else -1,
+                    -step.evidence_count,
+                    step.unit_name,
+                ),
             )
-        )
-        selected = steps[:10]
-        return [step.model_copy(update={"priority": index}) for index, step in enumerate(selected, 1)]
+            ordered.extend(
+                step.model_copy(update={"priority": index})
+                for index, step in enumerate(subject_steps, 1)
+            )
+        return ordered
 
     @staticmethod
     def _fallback_learning_engine() -> InferenceEngine:
-        def recommendation(code: str, operator: str, right: float, action: str) -> Rule:
+        def recommendation(
+            code: str,
+            operator: str,
+            right: float,
+            action: str,
+            upper: float | None = None,
+        ) -> Rule:
             conditions = [
                 Clause(
-                    predicate="unit_accuracy",
-                    arguments=("?student", "?unit", "?accuracy"),
+                    predicate="criterion_mastery",
+                    arguments=("?student", "?unit", "?mastery"),
                 ),
-                Clause(operator=operator, left="?accuracy", right=right),
+                Clause(operator=operator, left="?mastery", right=right),
             ]
-            if action == "reinforce":
-                conditions.append(Clause(operator="lt", left="?accuracy", right=0.75))
+            if upper is not None:
+                conditions.append(Clause(operator="lt", left="?mastery", right=upper))
             return Rule(
                 code=code,
                 name=code,
@@ -190,11 +228,29 @@ class TakerService:
 
         return InferenceEngine(
             (
-                recommendation("R_LEARNING_REMEDIATE", "lt", 0.5, "remediate"),
-                recommendation("R_LEARNING_REINFORCE", "gte", 0.5, "reinforce"),
-                recommendation("R_LEARNING_ADVANCE", "gte", 0.75, "advance"),
+                recommendation("R_CRITERION_REMEDIATE", "lt", 0.45, "remediate"),
+                recommendation("R_CRITERION_DEVELOP", "gte", 0.45, "develop", 0.60),
+                recommendation("R_CRITERION_REINFORCE", "gte", 0.60, "reinforce", 0.75),
             )
         )
+
+    @staticmethod
+    def _recommendation_for_mastery(mastery: float) -> str:
+        if mastery < 0.45:
+            return "remediate"
+        if mastery < 0.60:
+            return "develop"
+        return "reinforce"
+
+    @staticmethod
+    def _criterion_understanding(mastery: float) -> str:
+        if mastery < 0.45:
+            return "Needs review"
+        if mastery < 0.60:
+            return "Developing"
+        if mastery < 0.75:
+            return "Understands"
+        return "Mastered"
 
     @staticmethod
     def _understanding_label(percentage: float | None) -> str:

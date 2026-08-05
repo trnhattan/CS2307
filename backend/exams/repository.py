@@ -223,17 +223,20 @@ class ExamRepository:
         theta: float,
         standard_error: float,
         question_count: int,
+        assessment_purpose: str = "practice",
     ) -> int:
         result = await session.execute(
             text(
                 """
                 INSERT INTO exam_sessions (
-                    student_id, subject_id, mode, generation_config, random_seed,
+                    student_id, subject_id, mode, assessment_purpose,
+                    generation_config, random_seed,
                     theta_initial, theta_current, standard_error_current,
                     max_score
                 )
                 VALUES (
-                    :student_id, :subject_id, 'fixed', CAST(:generation_config AS JSONB),
+                    :student_id, :subject_id, 'fixed', :assessment_purpose,
+                    CAST(:generation_config AS JSONB),
                     :random_seed, :theta, :theta, :standard_error, :max_score
                 )
                 RETURNING session_id
@@ -247,6 +250,7 @@ class ExamRepository:
                 "theta": theta,
                 "standard_error": standard_error,
                 "max_score": question_count,
+                "assessment_purpose": assessment_purpose,
             },
         )
         return result.scalar_one()

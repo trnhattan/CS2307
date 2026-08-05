@@ -17,7 +17,7 @@ from backend.generation.schemas import (
     RecentGenerationResponse,
 )
 from backend.generation.service import QuestionGenerationService
-from backend.llm.client import OpenAICompatibleClient
+from backend.llm.client import create_llm_client
 
 
 router = APIRouter()
@@ -29,11 +29,7 @@ def get_generation_service() -> QuestionGenerationService:
         QuestionGenerationRepository(),
         async_session_factory,
         settings,
-        OpenAICompatibleClient(
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
-            timeout_seconds=settings.llm_timeout_seconds,
-        ),
+        create_llm_client(settings),
     )
 
 

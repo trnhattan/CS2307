@@ -16,10 +16,23 @@ NODE_COLORS = {
     "subject": "#72d6a0",
     "topic": "#ffd166",
     "skill": "#d6a2e8",
+    "criterion": "#d6a2e8",
     "question": "#cbd5e1",
     "evidence": "#ffaaa5",
     "recommendation": "#67e8f9",
     "path": "#a7f3d0",
+}
+
+NODE_BORDERS = {
+    "student": "#3b6fc4",
+    "subject": "#2f855a",
+    "topic": "#c48b16",
+    "skill": "#8b5aa5",
+    "criterion": "#8b5aa5",
+    "question": "#64748b",
+    "evidence": "#c66b67",
+    "recommendation": "#16879a",
+    "path": "#3b8f70",
 }
 
 NODE_TYPE_LABELS = {
@@ -27,6 +40,7 @@ NODE_TYPE_LABELS = {
     "subject": "Subject",
     "topic": "Topic",
     "skill": "Skill",
+    "criterion": "Assessment criterion",
     "question": "Question",
     "evidence": "Response",
     "recommendation": "Recommendation",
@@ -42,6 +56,18 @@ RELATION_LABELS = {
     "measures": "Measures",
     "supports_ability": "Supports understanding of",
     "recommended_next": "Recommended next step",
+    "has_learning_step": "Needs improvement in",
+    "has_subject": "Has learning profile for",
+    "has_criterion": "Requires understanding of",
+    "answered_question": "Answered question",
+    "subject_needs_review": "Needs review",
+    "subject_developing": "Developing",
+    "subject_understands": "Understands",
+    "subject_mastered": "Proficient",
+    "criterion_needs_review": "Needs review",
+    "criterion_developing": "Developing",
+    "criterion_understands": "Understands",
+    "criterion_mastered": "Mastered",
 }
 
 ATTRIBUTE_LABELS = {
@@ -63,6 +89,14 @@ ATTRIBUTE_LABELS = {
     "reasoning_rule": "Reasoning rule",
     "reasoning_trace": "Reasoning trace",
     "source": "Evidence source",
+    "learning_objective": "Learning objective",
+    "success_statement": "Success criterion",
+    "difficulty": "Question difficulty",
+    "bloom_level": "Cognitive level",
+    "mastery_percent": "Understanding",
+    "answer_result": "Answer result",
+    "question_code": "Question reference",
+    "completed_tests": "Completed tests",
 }
 
 SOURCE_LABELS = {
@@ -81,6 +115,7 @@ def render_interactive_graph(
     *,
     key: str,
     height: int = 650,
+    expand_roots_initially: bool = True,
 ) -> None:
     graph = nx.MultiDiGraph()
     node_ids = {str(node["id"]) for node in nodes}
@@ -97,6 +132,10 @@ def render_interactive_graph(
                 "source": source,
                 "target": target,
                 "relation": relation_key,
+                "label": _clean_label(
+                    edge.get("display_label"),
+                    RELATION_LABELS.get(relation_key, _humanize(relation_key)),
+                ),
                 "provenance": edge.get("provenance") or {},
             }
         )
@@ -104,24 +143,33 @@ def render_interactive_graph(
         nodes, normalized_edges
     )
     initially_visible = set(root_ids)
-    for root_id in root_ids:
-        initially_visible.update(children_by_parent.get(root_id, []))
+    if expand_roots_initially:
+        for root_id in root_ids:
+            initially_visible.update(children_by_parent.get(root_id, []))
 
     for node in nodes:
         node_id = str(node["id"])
         node_type = str(node.get("type", "node"))
         full_label = _clean_label(node.get("label"), NODE_TYPE_LABELS.get(node_type, "Node"))
         attributes = node.get("attributes") or {}
+        background = NODE_COLORS.get(node_type, "#e2e8f0")
+        border = NODE_BORDERS.get(node_type, "#64748b")
         graph.add_node(
             node_id,
             label=_wrap_label(full_label),
             fullLabel=full_label,
-            title=_node_tooltip(node_type, full_label, attributes),
-            color=NODE_COLORS.get(node_type, "#e2e8f0"),
+            tooltipRows=_node_tooltip(node_type, full_label, attributes),
+            color={
+                "background": background,
+                "border": border,
+                "highlight": {"background": background, "border": "#1d4ed8"},
+                "hover": {"background": background, "border": "#334155"},
+            },
             shape="dot" if node_type in {"student", "subject"} else "box",
             size=30 if node_type == "student" else 21,
-            group=node_type,
+            nodeType=node_type,
             borderWidth=2 if node_type in {"student", "subject"} else 1,
+            borderWidthSelected=3,
             widthConstraint={"maximum": 205},
             margin=11,
             hidden=node_id not in initially_visible,
@@ -131,7 +179,7 @@ def render_interactive_graph(
         source = edge["source"]
         target = edge["target"]
         relation_key = edge["relation"]
-        relation_label = RELATION_LABELS.get(relation_key, _humanize(relation_key))
+        relation_label = edge["label"]
         graph.add_edge(
             source,
             target,
@@ -139,7 +187,7 @@ def render_interactive_graph(
             label=relation_label,
             relationKey=relation_key,
             relationLabel=relation_label,
-            title=_edge_tooltip(relation_label, edge["provenance"]),
+            tooltipRows=_edge_tooltip(relation_label, edge["provenance"]),
             arrows="to",
             color="#94a3b8",
             width=1.15,
@@ -168,7 +216,6 @@ def render_interactive_graph(
                     "keyboard": {"enabled": True},
                     "multiselect": False,
                     "navigationButtons": True,
-                    "tooltipDelay": 120,
                     "zoomView": True,
                 },
                 "physics": {
@@ -210,7 +257,7 @@ def render_interactive_graph(
         "rootNodeIds": root_ids,
         "parentByNode": parent_by_node,
         "childrenByParent": children_by_parent,
-        "initialExpanded": root_ids,
+        "initialExpanded": root_ids if expand_roots_initially else [],
     }
     document = network.generate_html(notebook=False)
     document = _inject_explorer(document, nodes, normalized_edges, graph_config)
@@ -310,6 +357,16 @@ def _expansion_structure(
         relation = edge["relation"]
         if relation == "has_ability" and types.get(target) == "subject":
             assign(target, source, 10)
+        elif (
+            relation == "has_subject" or relation.startswith("subject_")
+        ) and types.get(target) == "subject":
+            assign(target, source, 10)
+        elif (
+            relation == "has_criterion" or relation.startswith("criterion_")
+        ) and types.get(target) == "criterion":
+            assign(target, source, 20)
+        elif relation == "answered_question" and types.get(target) == "question":
+            assign(target, source, 30)
         elif relation == "belongs_to_subject":
             assign(source, target, 20)
         elif relation == "prerequisite_of":
@@ -319,6 +376,8 @@ def _expansion_structure(
         elif relation == "answers":
             assign(source, target, 50)
         elif relation == "recommended_next" and types.get(source) == types.get(target) == "path":
+            assign(target, source, 50)
+        elif relation == "has_learning_step" and types.get(target) == "path":
             assign(target, source, 50)
 
     node_ids = [str(node["id"]) for node in nodes]
@@ -341,6 +400,7 @@ def _node_rank(node_type: str) -> int:
         "subject": 1,
         "topic": 2,
         "skill": 3,
+        "criterion": 3,
         "question": 4,
         "evidence": 5,
         "path": 0,
@@ -382,29 +442,48 @@ def _human_value(name: str, value: Any) -> str:
         return SOURCE_LABELS.get(str(value), _humanize(value))
     if name in {"mastery_probability"} and isinstance(value, (float, int)):
         return f"{float(value) * 100:.1f}%"
-    if name in {"accuracy_percent"} and isinstance(value, (float, int)):
+    if name in {"accuracy_percent", "mastery_percent"} and isinstance(value, (float, int)):
         return f"{float(value):.1f}%"
     if isinstance(value, float):
         return f"{value:.3f}"
     return _humanize(value) if name in {"unit_type", "knowledge_type"} else str(value)
 
 
-def _node_tooltip(kind: str, label: str, attributes: dict[str, Any]) -> str:
+def _node_tooltip(
+    kind: str, label: str, attributes: dict[str, Any]
+) -> list[dict[str, Any]]:
     kind_label = NODE_TYPE_LABELS.get(kind, _humanize(kind))
-    lines = [kind_label, label]
+    rows: list[dict[str, Any]] = [
+        {"label": kind_label, "value": None, "heading": True},
+        {"label": kind_label, "value": label, "heading": False},
+    ]
     for name, value in attributes.items():
         if name in HIDDEN_TOOLTIP_FIELDS or value is None or isinstance(value, (dict, list)):
             continue
         field_label = ATTRIBUTE_LABELS.get(name, _humanize(name))
-        lines.append(f"{field_label}: {_human_value(name, value)}")
-    return "\n".join(lines)
+        rows.append(
+            {
+                "label": field_label,
+                "value": _human_value(name, value),
+                "heading": False,
+            }
+        )
+    return rows
 
 
-def _edge_tooltip(label: str, attributes: dict[str, Any]) -> str:
-    lines = [label]
+def _edge_tooltip(label: str, attributes: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = [
+        {"label": label, "value": None, "heading": True}
+    ]
     for name, value in attributes.items():
         if name in HIDDEN_TOOLTIP_FIELDS or value is None or isinstance(value, (dict, list)):
             continue
         field_label = ATTRIBUTE_LABELS.get(name, _humanize(name))
-        lines.append(f"{field_label}: {_human_value(name, value)}")
-    return "\n".join(lines)
+        rows.append(
+            {
+                "label": field_label,
+                "value": _human_value(name, value),
+                "heading": False,
+            }
+        )
+    return rows

@@ -90,7 +90,7 @@ def render(client: ExamAPIClient) -> None:
             "Stability window", min_value=1, max_value=20,
             value=cat["stability_window"],
         )
-        weights = st.columns(4)
+        weights = st.columns(5)
         information = weights[0].number_input(
             "Information weight", min_value=0.0, max_value=10.0,
             value=float(cat["information_weight"]), step=0.05,
@@ -106,6 +106,10 @@ def render(client: ExamAPIClient) -> None:
         exposure = weights[3].number_input(
             "Exposure penalty", min_value=0.0, max_value=10.0,
             value=float(cat["exposure_penalty"]), step=0.05,
+        )
+        criterion_coverage = weights[4].number_input(
+            "Criterion coverage", min_value=0.0, max_value=10.0,
+            value=float(cat.get("criterion_coverage_weight", 0.3)), step=0.05,
         )
         distribution = cat["difficulty_distribution"]
         difficulty = st.columns(3)
@@ -152,6 +156,7 @@ def render(client: ExamAPIClient) -> None:
                     "weak_unit_weight": weak,
                     "content_balance_weight": balance,
                     "exposure_penalty": exposure,
+                    "criterion_coverage_weight": criterion_coverage,
                     "difficulty_distribution": {
                         "easy": cat_easy,
                         "medium": cat_medium,

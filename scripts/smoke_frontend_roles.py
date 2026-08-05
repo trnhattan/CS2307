@@ -34,6 +34,12 @@ def main() -> None:
     taker_labels = [button.label for button in taker.button]
     assert "Progress" in taker_labels
     assert "Start test" in taker_labels
+    assert "Learning assistant" in taker_labels
+
+    for page in ("subjects", "knowledge_graph", "learner_chat"):
+        taker.session_state["page"] = page
+        taker.run(timeout=30)
+        assert not taker.exception
 
     supervisor = role_app("supervisor", "supervisor", "supervisor")
     supervisor_labels = [button.label for button in supervisor.button]
@@ -54,6 +60,7 @@ def main() -> None:
     print(
         {
             "taker_page": "passed",
+            "taker_learning_pages": "passed",
             "supervisor_page": "passed",
             "admin_pages": "passed",
             "role_navigation": "passed",

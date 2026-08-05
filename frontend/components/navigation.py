@@ -8,6 +8,7 @@ ROLE_NAVIGATION = {
         ("taker_dashboard", "Progress"),
         ("subjects", "Start test"),
         ("knowledge_graph", "Learning graph"),
+        ("learner_chat", "Learning assistant"),
     ],
     "supervisor": [
         ("supervisor", "Taker overview"),
@@ -36,6 +37,7 @@ def render_navigation() -> None:
     if user["role"] == "exam_taker" and st.session_state.cat_payload:
         navigation.append(("cat_exam", "Current CAT"))
 
+    st.markdown("<div class='topbar-card'>", unsafe_allow_html=True)
     identity = st.columns([4.5, 1.8, 0.9])
     with identity[0]:
         st.markdown(
@@ -52,6 +54,7 @@ def render_navigation() -> None:
         if st.button("Sign out", key="nav_logout", width="stretch"):
             logout()
 
+    st.markdown("<div class='nav-tabs-wrapper'>", unsafe_allow_html=True)
     columns = st.columns([1] * len(navigation), gap="small")
     for column, (page, label) in zip(columns, navigation):
         with column:
@@ -62,7 +65,7 @@ def render_navigation() -> None:
                 width="stretch",
             ):
                 go(page)
-    st.divider()
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
 
 def _role_label(role: str) -> str:

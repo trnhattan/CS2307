@@ -93,6 +93,7 @@ class CATRepository:
                     COALESCE(
                         ARRAY_AGG(DISTINCT unit.unit_code) FILTER (
                             WHERE unit.unit_code IS NOT NULL
+                              AND link.unit_role IN ('primary_skill', 'supporting_skill')
                         ), ARRAY[]::VARCHAR[]
                     ) AS unit_codes,
                     (SELECT COUNT(*) FROM exam_items exposure
@@ -166,6 +167,34 @@ class CATRepository:
             for row in result
             if row.mastery_probability is not None
         }
+
+    async def criterion_evidence(
+        self, session: AsyncSession, student_id: int, subject_id: int
+    ) -> dict[str, int]:
+        result = await session.execute(
+            text(
+                """
+                SELECT criterion.criterion_code,
+                       COUNT(item.exam_item_id) FILTER (
+                           WHERE exam.session_id IS NOT NULL
+                       ) AS evidence_count
+                FROM assessment_criteria criterion
+                LEFT JOIN question_knowledge_units link
+                  ON link.unit_id = criterion.knowledge_unit_id
+                 AND link.unit_role IN ('primary_skill', 'supporting_skill')
+                LEFT JOIN exam_items item ON item.question_id = link.question_id
+                 AND item.answered_at IS NOT NULL
+                LEFT JOIN exam_sessions exam ON exam.session_id = item.session_id
+                 AND exam.student_id = :student_id
+                 AND exam.status = 'completed'
+                WHERE criterion.subject_id = :subject_id
+                  AND criterion.is_active = TRUE
+                GROUP BY criterion.criterion_id
+                """
+            ),
+            {"student_id": student_id, "subject_id": subject_id},
+        )
+        return {row.criterion_code: int(row.evidence_count) for row in result}
 
     async def options(
         self, session: AsyncSession, question_id: int

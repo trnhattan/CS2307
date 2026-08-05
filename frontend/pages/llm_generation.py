@@ -25,8 +25,9 @@ def render(client: ExamAPIClient) -> None:
     left.metric("LLM", "Enabled" if status["enabled"] else "Disabled")
     middle.metric("API", "Configured" if status["configured"] else "Missing key")
     right.metric("Model", status["model"])
+    st.caption(f"Administrator-selected provider endpoint: {status['provider']}")
     if not status["configured"]:
-        st.warning("The backend does not have LLM_API_KEY configured.")
+        st.warning("The selected provider key is not configured in the backend environment.")
 
     subjects = catalog["subjects"]
     if not subjects:

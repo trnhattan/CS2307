@@ -87,6 +87,7 @@ class QuestionGenerationRepository:
         *,
         artifact_type: str,
         audience: str,
+        provider: str,
         model: str,
         request_payload: dict[str, Any],
         created_by: str,
@@ -99,7 +100,7 @@ class QuestionGenerationRepository:
                     artifact_type, session_id, audience, provider, model,
                     request_payload, created_by
                 ) VALUES (
-                    :artifact_type, :session_id, :audience, 'vlai-openai-compatible',
+                    :artifact_type, :session_id, :audience, :provider,
                     :model, CAST(:request_payload AS JSONB), :created_by
                 )
                 RETURNING artifact_id
@@ -109,6 +110,7 @@ class QuestionGenerationRepository:
                 "artifact_type": artifact_type,
                 "session_id": session_id,
                 "audience": audience,
+                "provider": provider,
                 "model": model,
                 "request_payload": self._json(request_payload),
                 "created_by": created_by,

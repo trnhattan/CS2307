@@ -114,9 +114,10 @@
   border: 1px solid #dbe4f5;
   border-radius: 16px;
   overflow: hidden;
+  position: relative;
 }
 
-div.vis-tooltip {
+.graph-tooltip {
   background: #ffffff;
   border: 1px solid #cbd5e1;
   border-radius: 10px;
@@ -126,9 +127,25 @@ div.vis-tooltip {
   font-size: 12px;
   line-height: 1.45;
   max-width: 420px;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   padding: 9px 11px;
-  white-space: pre-line;
+  pointer-events: none;
+  position: absolute;
+  white-space: normal;
+  z-index: 20;
+}
+
+.graph-tooltip[hidden] {
+  display: none;
+}
+
+.graph-tooltip-heading {
+  font-size: 13px;
+  margin-bottom: 3px;
+}
+
+.graph-tooltip-row + .graph-tooltip-row {
+  margin-top: 2px;
 }
 
 @media (max-width: 1050px) {

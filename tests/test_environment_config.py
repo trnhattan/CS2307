@@ -29,8 +29,13 @@ def test_environment_files_define_only_runtime_and_secret_configuration() -> Non
         "POSTGRES_PASSWORD",
         "DATABASE_URL",
         "AUTH_SECRET",
-        "LLM_BASE_URL",
-        "LLM_API_KEY",
+        "OPENROUTER_BASE_URL",
+        "OPENROUTER_API_KEY",
+        "OPENROUTER_HTTP_REFERER",
+        "OPENROUTER_APP_TITLE",
+        "GEMINI_BASE_URL",
+        "GEMINI_API_KEY",
+        "GEMINI_THINKING_LEVEL",
     }
     exam_keys = {
         "DEFAULT_EXAM_QUESTION_COUNT",
@@ -39,6 +44,7 @@ def test_environment_files_define_only_runtime_and_secret_configuration() -> Non
         "CAT_DIFFICULTY_DISTRIBUTION",
         "IRT_SCALE_CONSTANT",
         "LLM_MODEL",
+        "LLM_REASONING_ENABLED",
         "LLM_QUESTION_MAX_TOKENS",
         "LLM_TEMPERATURE",
     }
@@ -55,8 +61,10 @@ def test_backend_and_frontend_load_shared_environment() -> None:
 
     assert backend.backend_port == 8000
     assert backend.database_url.startswith("postgresql+asyncpg://")
-    assert backend.llm_base_url.endswith("/v1")
-    assert backend.llm_api_key
+    assert backend.openrouter_base_url == "https://openrouter.ai/api/v1"
+    assert backend.openrouter_api_key is None or backend.openrouter_api_key
+    assert backend.gemini_base_url == "https://generativelanguage.googleapis.com/v1beta/openai"
+    assert backend.gemini_api_key is None or backend.gemini_api_key
     assert frontend.port == 8501
     assert frontend.api_base_url == "http://localhost:8000"
 
@@ -71,6 +79,7 @@ def test_exam_behavior_is_seeded_in_sys_props_not_env() -> None:
         "CAT_DIFFICULTY_DISTRIBUTION",
         "IRT_SCALE_CONSTANT",
         "LLM_MODEL",
+        "LLM_REASONING_ENABLED",
         "LLM_QUESTION_MAX_TOKENS",
         "LLM_TEMPERATURE",
     ):
@@ -99,7 +108,7 @@ def test_compose_containerizes_app_without_baking_secrets() -> None:
     assert "@postgres:5432/" in compose
     assert "API_BASE_URL: http://backend:8000" in compose
     assert compose.count("condition: service_healthy") >= 2
-    assert "LLM_API_KEY:" not in compose
+    assert "OPENROUTER_API_KEY:" not in compose
     assert "FROM runtime AS backend" in dockerfile
     assert "FROM runtime AS frontend" in dockerfile
     assert dockerfile.count("USER app") == 2

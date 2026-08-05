@@ -55,6 +55,7 @@ def select_fixed_exam(
     seed: int,
     scale: float = 1.7,
     max_estimated_seconds: int | None = None,
+    prioritize_skill_coverage: bool = False,
 ) -> list[SelectedQuestion]:
     if count <= 0:
         return []
@@ -78,6 +79,7 @@ def select_fixed_exam(
         if minimum_duration > max_estimated_seconds:
             return []
     topic_usage: Counter[str] = Counter()
+    skill_usage: Counter[str] = Counter()
     selected: list[SelectedQuestion] = []
     remaining = list(candidates)
     estimated_seconds = 0
@@ -99,7 +101,15 @@ def select_fixed_exam(
             ]
             if not pool:
                 return selected
-            chosen = _best_candidate(pool, topic_usage, theta, scale, rng)
+            chosen = _best_candidate(
+                pool,
+                topic_usage,
+                skill_usage,
+                theta,
+                scale,
+                rng,
+                prioritize_skill_coverage,
+            )
             information = fisher_information_3pl(
                 theta,
                 chosen.irt_a,
@@ -114,12 +124,18 @@ def select_fixed_exam(
                     reason=(
                         f"Matches the {label} target, provides Fisher information "
                         f"{information:.3f} at theta={theta:.2f}, and balances "
-                        f"topic {chosen.topic_name}."
+                        f"topic {chosen.topic_name}"
+                        + (
+                            ", while maximizing assessment-criterion coverage."
+                            if prioritize_skill_coverage
+                            else "."
+                        )
                     ),
                 )
             )
             estimated_seconds += chosen.avg_time_sec
             topic_usage[chosen.topic_name] += 1
+            skill_usage.update(chosen.skill_codes)
             remaining.remove(chosen)
             outstanding[label] -= 1
 
@@ -156,15 +172,33 @@ def _preserves_time_feasibility(
 def _best_candidate(
     candidates: list[QuestionCandidate],
     topic_usage: Counter[str],
+    skill_usage: Counter[str],
     theta: float,
     scale: float,
     rng: random.Random,
+    prioritize_skill_coverage: bool,
 ) -> QuestionCandidate:
     return max(
         candidates,
         key=lambda item: (
+            (
+                max(
+                    (1 if skill_usage[code] == 0 else 0 for code in item.skill_codes),
+                    default=0,
+                )
+                if prioritize_skill_coverage
+                else 0
+            ),
             fisher_information_3pl(theta, item.irt_a, item.irt_b, item.irt_c, scale)
             + 0.12 / (1 + topic_usage[item.topic_name])
+            + (
+                0.35 * max(
+                    (1 / (1 + skill_usage[code]) for code in item.skill_codes),
+                    default=0,
+                )
+                if prioritize_skill_coverage
+                else 0
+            )
             + rng.random() * 0.01
         ),
     )

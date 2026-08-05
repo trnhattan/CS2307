@@ -18,16 +18,21 @@ def render() -> None:
     )
     st.write("")
     st.markdown("<div class='section-title'>Project team</div>", unsafe_allow_html=True)
-    st.caption("Replace the placeholders with team names and student IDs before presenting.")
+    members = [
+        ("D\u01b0\u01a1ng Nguy\u1ec5n Thu\u1eadn", "250101068"),
+        ("Tr\u1ecbnh Nh\u1eadt T\u00e2n", "240101071"),
+        ("\u0110inh Ph\u01b0\u01a1ng Nam", "250101044"),
+        ("Nguy\u1ec5n Ph\u00fac H\u01b0ng", "250101026"),
+        ("L\u00ea Tr\u1ea7n Nh\u1eadt", "250101050"),
+    ]
     columns = st.columns(5)
-    for index, column in enumerate(columns, start=1):
+    for (name, student_id), column in zip(members, columns):
         with column:
             st.markdown(
                 f"""
                 <div class="member">
-                  <div class="avatar">{index}</div>
-                  <strong>Member {index}</strong><br/>
-                  <small>0000000000</small>
+                  <strong>{name}</strong><br/>
+                  <small>{student_id}</small>
                 </div>
                 """,
                 unsafe_allow_html=True,

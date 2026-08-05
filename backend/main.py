@@ -8,11 +8,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.api.router import api_router
 from backend.core.config import get_settings
 from backend.db.session import async_session_factory, engine
+from backend.learner_mcp.server import learner_mcp_app
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    yield
+    async with learner_mcp_app.lifespan():
+        yield
     await engine.dispose()
 
 
@@ -40,3 +42,6 @@ async def readiness() -> dict[str, str]:
             detail="PostgreSQL is unavailable",
         ) from error
     return {"status": "ready"}
+
+
+app.mount("/", learner_mcp_app)

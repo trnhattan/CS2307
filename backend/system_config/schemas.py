@@ -61,6 +61,7 @@ class CATConfigUpdate(BaseModel):
     weak_unit_weight: float = Field(ge=0, le=10)
     content_balance_weight: float = Field(ge=0, le=10)
     exposure_penalty: float = Field(ge=0, le=10)
+    criterion_coverage_weight: float = Field(default=0.3, ge=0, le=10)
     difficulty_distribution: DifficultyDistribution
     topic_codes: list[str] = Field(default_factory=list, max_length=100)
     skill_codes: list[str] = Field(default_factory=list, max_length=100)

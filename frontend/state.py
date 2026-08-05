@@ -11,6 +11,7 @@ ROLE_PAGES = {
         "cat_exam",
         "cat_result",
         "knowledge_graph",
+        "learner_chat",
     },
     "supervisor": {
         "supervisor",
@@ -52,6 +53,7 @@ def initialize_state() -> None:
         "cat_question_started_at": None,
         "cat_result": None,
         "calibration_result": None,
+        "active_chat_thread": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -87,6 +89,7 @@ def logout() -> None:
         "last_result",
         "cat_payload",
         "cat_result",
+        "active_chat_thread",
     ):
         st.session_state[key] = None if key != "results" else []
     st.session_state.exam_started_at = {}
